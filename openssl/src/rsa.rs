@@ -50,6 +50,7 @@ impl Padding {
     pub const PKCS1: Padding = Padding(ffi::RSA_PKCS1_PADDING);
     pub const PKCS1_OAEP: Padding = Padding(ffi::RSA_PKCS1_OAEP_PADDING);
     pub const PKCS1_PSS: Padding = Padding(ffi::RSA_PKCS1_PSS_PADDING);
+    pub const PKCS1_WITH_TLS: Padding = Padding(ffi::RSA_PKCS1_WITH_TLS_PADDING);
 
     /// Creates a `Padding` from an integer representation.
     pub fn from_raw(value: c_int) -> Padding {
