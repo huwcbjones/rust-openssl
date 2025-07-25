@@ -713,3 +713,17 @@ cfg_if! {
         }
     }
 }
+
+cfg_if!{
+    if #[cfg(ossl111)] {
+        extern "C" {
+            pub fn EVP_PKEY_check(ctx: *mut EVP_PKEY_CTX) -> c_int;
+            pub fn EVP_PKEY_param_check(ctx: *mut EVP_PKEY_CTX) -> c_int;
+            pub fn EVP_PKEY_param_check_quick(ctx: *mut EVP_PKEY_CTX) -> c_int;
+            pub fn EVP_PKEY_public_check(ctx: *mut EVP_PKEY_CTX) -> c_int;
+            pub fn EVP_PKEY_public_check_quick(ctx: *mut EVP_PKEY_CTX) -> c_int;
+            pub fn EVP_PKEY_private_check(ctx: *mut EVP_PKEY_CTX) -> c_int;
+            pub fn EVP_PKEY_pairwise_check(ctx: *mut EVP_PKEY_CTX) -> c_int;
+        }
+    }
+}
