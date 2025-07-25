@@ -64,8 +64,8 @@ impl Padding {
 }
 
 generic_foreign_type_and_impl_send_sync! {
-    type CType = ffi::RSA;
-    fn drop = ffi::RSA_free;
+    type CType = ffi::EVP_PKEY;
+    fn drop = ffi::EVP_PKEY_free;
 
     /// An RSA key.
     pub struct Rsa<T>;
@@ -85,7 +85,7 @@ impl<T> ToOwned for RsaRef<T> {
 
     fn to_owned(&self) -> Rsa<T> {
         unsafe {
-            ffi::RSA_up_ref(self.as_ptr());
+            ffi::EVP_PKEY_up_ref(self.as_ptr());
             Rsa::from_ptr(self.as_ptr())
         }
     }
@@ -99,21 +99,21 @@ where
         /// Serializes the private key to a PEM-encoded PKCS#1 RSAPrivateKey structure.
         ///
         /// The output will have a header of `-----BEGIN RSA PRIVATE KEY-----`.
-        #[corresponds(PEM_write_bio_RSAPrivateKey)]
+        #[corresponds(PEM_write_bio_PrivateKey_traditional)]
         private_key_to_pem,
         /// Serializes the private key to a PEM-encoded encrypted PKCS#1 RSAPrivateKey structure.
         ///
         /// The output will have a header of `-----BEGIN RSA PRIVATE KEY-----`.
-        #[corresponds(PEM_write_bio_RSAPrivateKey)]
+        #[corresponds(PEM_write_bio_PrivateKey_traditional)]
         private_key_to_pem_passphrase,
-        ffi::PEM_write_bio_RSAPrivateKey
+        ffi::PEM_write_bio_PrivateKey_traditional
     }
 
     to_der! {
         /// Serializes the private key to a DER-encoded PKCS#1 RSAPrivateKey structure.
-        #[corresponds(i2d_RSAPrivateKey)]
+        #[corresponds(i2d_PrivateKey_bio)]
         private_key_to_der,
-        ffi::i2d_RSAPrivateKey
+        ffi::i2d_PrivateKey
     }
 
     /// Decrypts data using the private key, returning the number of decrypted bytes.
