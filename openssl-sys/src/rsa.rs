@@ -99,3 +99,5 @@ pub const RSA_NO_PADDING: c_int = 3;
 pub const RSA_PKCS1_OAEP_PADDING: c_int = 4;
 pub const RSA_X931_PADDING: c_int = 5;
 pub const RSA_PKCS1_PSS_PADDING: c_int = 6;
+#[cfg(ossl300)]
+pub const RSA_PKCS1_WITH_TLS_PADDING: c_int = 7;
