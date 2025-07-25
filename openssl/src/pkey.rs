@@ -164,8 +164,7 @@ impl<T> PKeyRef<T> {
     #[corresponds(EVP_PKEY_get1_RSA)]
     pub fn rsa(&self) -> Result<Rsa<T>, ErrorStack> {
         unsafe {
-            let rsa = cvt_p(ffi::EVP_PKEY_get1_RSA(self.as_ptr()))?;
-            Ok(Rsa::from_ptr(rsa))
+            Ok(Rsa::from_ptr(self.as_ptr()))
         }
     }
 

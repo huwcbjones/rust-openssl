@@ -23,6 +23,7 @@
 //! let mut buf = vec![0; rsa.size() as usize];
 //! let encrypted_len = rsa.public_encrypt(data, &mut buf, Padding::PKCS1).unwrap();
 //! ```
+use std::ffi::CString;
 use cfg_if::cfg_if;
 use foreign_types::{ForeignType, ForeignTypeRef};
 use libc::c_int;
@@ -31,8 +32,10 @@ use std::mem;
 use std::ptr;
 
 use crate::bn::{BigNum, BigNumRef};
+use crate::encrypt::{Decrypter, Encrypter};
 use crate::error::ErrorStack;
-use crate::pkey::{HasPrivate, HasPublic, Private, Public};
+use crate::pkey::{HasPrivate, HasPublic, PKey, Private, Public};
+use crate::pkey_ctx::PkeyCtx;
 use crate::util::ForeignTypeRefExt;
 use crate::{cvt, cvt_n, cvt_p, LenType};
 use openssl_macros::corresponds;
@@ -123,7 +126,6 @@ where
     ///
     /// Panics if `self` has no private components, or if `to` is smaller
     /// than `self.size()`.
-    #[corresponds(RSA_private_decrypt)]
     pub fn private_decrypt(
         &self,
         from: &[u8],
@@ -133,16 +135,11 @@ where
         assert!(from.len() <= i32::MAX as usize);
         assert!(to.len() >= self.size() as usize);
 
-        unsafe {
-            let len = cvt_n(ffi::RSA_private_decrypt(
-                from.len() as LenType,
-                from.as_ptr(),
-                to.as_mut_ptr(),
-                self.as_ptr(),
-                padding.0,
-            ))?;
-            Ok(len as usize)
-        }
+        let pkey = PKey::from_rsa(self.to_owned())?;
+        let mut decrypter = Decrypter::new(&pkey)?;
+        decrypter.set_rsa_padding(padding)?;
+
+        decrypter.decrypt(from, to)
     }
 
     /// Encrypts data using the private key, returning the number of encrypted bytes.
@@ -161,84 +158,85 @@ where
         assert!(from.len() <= i32::MAX as usize);
         assert!(to.len() >= self.size() as usize);
 
-        unsafe {
-            let len = cvt_n(ffi::RSA_private_encrypt(
-                from.len() as LenType,
-                from.as_ptr(),
-                to.as_mut_ptr(),
-                self.as_ptr(),
-                padding.0,
-            ))?;
-            Ok(len as usize)
-        }
+        let pkey = PKey::from_rsa(self.to_owned())?;
+        let mut encrypter = Encrypter::new(&pkey)?;
+        encrypter.set_rsa_padding(padding)?;
+
+        encrypter.encrypt(from, to)
     }
 
     /// Returns a reference to the private exponent of the key.
-    #[corresponds(RSA_get0_key)]
+    #[corresponds(EVP_PKEY_get_bn_param)]
     pub fn d(&self) -> &BigNumRef {
+        let param = CString::new("d").unwrap();
         unsafe {
-            let mut d = ptr::null();
-            RSA_get0_key(self.as_ptr(), ptr::null_mut(), ptr::null_mut(), &mut d);
+            let mut d = ptr::null_mut();
+            ffi::EVP_PKEY_get_bn_param(self.as_ptr(), param.as_ptr(), &mut d);
             BigNumRef::from_const_ptr(d)
         }
     }
 
     /// Returns a reference to the first factor of the exponent of the key.
-    #[corresponds(RSA_get0_factors)]
+    #[corresponds(EVP_PKEY_get_bn_param)]
     pub fn p(&self) -> Option<&BigNumRef> {
+        let param = CString::new("rsa-factor1").unwrap();
         unsafe {
-            let mut p = ptr::null();
-            RSA_get0_factors(self.as_ptr(), &mut p, ptr::null_mut());
+            let mut p = ptr::null_mut();
+            ffi::EVP_PKEY_get_bn_param(self.as_ptr(), param.as_ptr(), &mut p);
             BigNumRef::from_const_ptr_opt(p)
         }
     }
 
     /// Returns a reference to the second factor of the exponent of the key.
-    #[corresponds(RSA_get0_factors)]
+    #[corresponds(EVP_PKEY_get_bn_param)]
     pub fn q(&self) -> Option<&BigNumRef> {
+        let param = CString::new("rsa-factor2").unwrap();
         unsafe {
-            let mut q = ptr::null();
-            RSA_get0_factors(self.as_ptr(), ptr::null_mut(), &mut q);
+            let mut q = ptr::null_mut();
+            ffi::EVP_PKEY_get_bn_param(self.as_ptr(), param.as_ptr(), &mut q);
             BigNumRef::from_const_ptr_opt(q)
         }
     }
 
     /// Returns a reference to the first exponent used for CRT calculations.
-    #[corresponds(RSA_get0_crt_params)]
+    #[corresponds(EVP_PKEY_get_bn_param)]
     pub fn dmp1(&self) -> Option<&BigNumRef> {
+        let param = CString::new("rsa-coefficient1").unwrap();
         unsafe {
-            let mut dp = ptr::null();
-            RSA_get0_crt_params(self.as_ptr(), &mut dp, ptr::null_mut(), ptr::null_mut());
+            let mut dp = ptr::null_mut();
+            ffi::EVP_PKEY_get_bn_param(self.as_ptr(), param.as_ptr(), &mut dp);
             BigNumRef::from_const_ptr_opt(dp)
         }
     }
 
     /// Returns a reference to the second exponent used for CRT calculations.
-    #[corresponds(RSA_get0_crt_params)]
+    #[corresponds(EVP_PKEY_get_bn_param)]
     pub fn dmq1(&self) -> Option<&BigNumRef> {
+        let param = CString::new("rsa-coefficient2").unwrap();
         unsafe {
-            let mut dq = ptr::null();
-            RSA_get0_crt_params(self.as_ptr(), ptr::null_mut(), &mut dq, ptr::null_mut());
+            let mut dq = ptr::null_mut();
+            ffi::EVP_PKEY_get_bn_param(self.as_ptr(), param.as_ptr(), &mut dq);
             BigNumRef::from_const_ptr_opt(dq)
         }
     }
 
     /// Returns a reference to the coefficient used for CRT calculations.
-    #[corresponds(RSA_get0_crt_params)]
+    #[corresponds(EVP_PKEY_get_bn_param)]
     pub fn iqmp(&self) -> Option<&BigNumRef> {
+        let param = CString::new("rsa-coefficient3").unwrap();
         unsafe {
-            let mut qi = ptr::null();
-            RSA_get0_crt_params(self.as_ptr(), ptr::null_mut(), ptr::null_mut(), &mut qi);
+            let mut qi = ptr::null_mut();
+            ffi::EVP_PKEY_get_bn_param(self.as_ptr(), param.as_ptr(), &mut qi);
             BigNumRef::from_const_ptr_opt(qi)
         }
     }
 
     /// Validates RSA parameters for correctness
-    #[corresponds(RSA_check_key)]
+    #[corresponds(EVP_PKEY_check)]
     pub fn check_key(&self) -> Result<bool, ErrorStack> {
+        let ctx = PkeyCtx::new(self.into())?;
         unsafe {
-            let result = ffi::RSA_check_key(self.as_ptr());
-            if result != 1 {
+            if ffi::EVP_PKEY_check(ctx.as_ptr()) != 1 {
                 let errors = ErrorStack::get();
                 if errors.errors().is_empty() {
                     Ok(false)
