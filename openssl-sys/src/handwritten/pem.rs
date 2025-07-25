@@ -53,6 +53,15 @@ const_ptr_api! {
             callback: pem_password_cb,
             user_data: *mut c_void,
         ) -> c_int;
+        pub fn PEM_write_bio_PrivateKey_traditional(
+            bio: *mut BIO,
+            pkey: #[const_ptr_if(ossl300)] EVP_PKEY,
+            cipher: *const EVP_CIPHER,
+            kstr: #[const_ptr_if(ossl300)] c_uchar,
+            klen: c_int,
+            callback: pem_password_cb,
+            user_data: *mut c_void,
+        ) -> c_int;
         pub fn PEM_write_bio_PUBKEY(bp: *mut BIO, x: #[const_ptr_if(ossl300)] EVP_PKEY) -> c_int;
         pub fn PEM_write_bio_PKCS8PrivateKey(
             bio: *mut BIO,
