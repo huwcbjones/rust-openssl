@@ -64,6 +64,7 @@ let cmac_key = ctx.keygen().unwrap();
 //! let valid = ctx.verify(text, &signature).unwrap();
 //! assert!(valid);
 //! ```
+use crate::bn::BigNumRef;
 #[cfg(not(any(boringssl, awslc)))]
 use crate::cipher::CipherRef;
 use crate::error::ErrorStack;
@@ -460,6 +461,38 @@ impl<T> PkeyCtxRef<T> {
             cvt(ffi::EVP_PKEY_CTX_set_rsa_padding(
                 self.as_ptr(),
                 padding.as_raw(),
+            ))?;
+        }
+
+        Ok(())
+    }
+
+    /// Sets the RSA keygen bits.
+    ///
+    /// This is only useful for RSA keys.
+    #[corresponds(EVP_PKEY_CTX_set_rsa_keygen_bits)]
+    #[inline]
+    pub fn set_rsa_keygen_bits(&mut self, bits: u32) -> Result<(), ErrorStack> {
+        unsafe {
+            cvt(ffi::EVP_PKEY_CTX_set_rsa_keygen_bits(
+                self.as_ptr(),
+                bits as c_int,
+            ))?;
+        }
+
+        Ok(())
+    }
+
+    /// Sets the RSA keygen public exponent.
+    ///
+    /// This is only useful for RSA keys.
+    #[corresponds(EVP_PKEY_CTX_set1_rsa_keygen_pubexp)]
+    #[inline]
+    pub fn set_rsa_keygen_pubexp(&mut self, pubexp: &BigNumRef) -> Result<(), ErrorStack> {
+        unsafe {
+            cvt(ffi::EVP_PKEY_CTX_set1_rsa_keygen_pubexp(
+                self.as_ptr(),
+                pubexp.as_ptr(),
             ))?;
         }
 
