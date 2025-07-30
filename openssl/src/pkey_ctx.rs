@@ -73,6 +73,7 @@ use crate::pkey::{HasPrivate, HasPublic, Id, PKey, PKeyRef, Private};
 use crate::rsa::Padding;
 use crate::sign::RsaPssSaltlen;
 use crate::{cvt, cvt_p};
+use cfg_if::cfg_if;
 use foreign_types::{ForeignType, ForeignTypeRef};
 #[cfg(not(any(boringssl, awslc)))]
 use libc::c_int;
@@ -490,10 +491,20 @@ impl<T> PkeyCtxRef<T> {
     #[inline]
     pub fn set_rsa_keygen_pubexp(&mut self, pubexp: &BigNumRef) -> Result<(), ErrorStack> {
         unsafe {
-            cvt(ffi::EVP_PKEY_CTX_set1_rsa_keygen_pubexp(
-                self.as_ptr(),
-                pubexp.as_ptr(),
-            ))?;
+            cfg_if! {
+                if #[cfg(ossl300)] {
+                    cvt(ffi::EVP_PKEY_CTX_set1_rsa_keygen_pubexp(
+                        self.as_ptr(),
+                        pubexp.as_ptr(),
+                    ))?;
+                } else {
+                    cvt(ffi::EVP_PKEY_CTX_set_rsa_keygen_pubexp(
+                        self.as_ptr(),
+                        // Dupe the BN because the EVP_PKEY_CTX takes ownership of it and will free it.
+                        cvt_p(ffi::BN_dup(pubexp.as_ptr()))?,
+                    ))?;
+                }
+            }
         }
 
         Ok(())
