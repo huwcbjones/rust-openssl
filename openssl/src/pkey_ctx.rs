@@ -477,7 +477,7 @@ impl<T> PkeyCtxRef<T> {
         unsafe {
             cvt(ffi::EVP_PKEY_CTX_set_rsa_keygen_bits(
                 self.as_ptr(),
-                bits as c_int,
+                bits as i32,
             ))?;
         }
 
