@@ -818,6 +818,7 @@ impl<T> PkeyCtxRef<T> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::bn::BigNum;
     #[cfg(not(any(boringssl, awslc)))]
     use crate::cipher::Cipher;
     use crate::ec::{EcGroup, EcKey};
@@ -950,6 +951,16 @@ mod test {
         ctx.set_keygen_cipher(Cipher::aes_128_cbc()).unwrap();
         ctx.set_keygen_mac_key(&hex::decode("9294727a3638bb1c13f48ef8158bfc9d").unwrap())
             .unwrap();
+        ctx.keygen().unwrap();
+    }
+
+    #[test]
+    fn rsa_generate() {
+        let pubexp = BigNum::from_u32(65537).unwrap();
+        let mut ctx = PkeyCtx::new_id(Id::RSA).unwrap();
+        ctx.keygen_init().unwrap();
+        ctx.set_rsa_keygen_pubexp(&pubexp).unwrap();
+        ctx.set_rsa_keygen_bits(2048).unwrap();
         ctx.keygen().unwrap();
     }
 
