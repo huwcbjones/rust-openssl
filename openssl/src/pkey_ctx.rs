@@ -959,6 +959,15 @@ mod test {
     }
 
     #[test]
+    #[cfg(not(boringssl))]
+    fn dsa_paramgen() {
+        let mut ctx = PkeyCtx::new_id(Id::DSA).unwrap();
+        ctx.paramgen_init().unwrap();
+        ctx.set_dsa_paramgen_bits(2048).unwrap();
+        ctx.paramgen().unwrap();
+    }
+
+    #[test]
     #[cfg(any(ossl110, boringssl, libressl360, awslc))]
     fn hkdf() {
         let mut ctx = PkeyCtx::new_id(Id::HKDF).unwrap();
