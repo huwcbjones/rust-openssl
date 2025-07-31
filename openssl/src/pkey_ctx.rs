@@ -994,12 +994,16 @@ mod test {
 
     #[test]
     #[cfg(not(boringssl))]
-    fn dh_paramgen() {
+    fn dh_keygen() {
         let mut ctx = PkeyCtx::new_id(Id::DH).unwrap();
         ctx.paramgen_init().unwrap();
         ctx.set_dh_paramgen_prime_len(512).unwrap();
         ctx.set_dh_paramgen_generator(2).unwrap();
-        ctx.paramgen().unwrap();
+        let params = ctx.paramgen().unwrap();
+
+        let mut key_ctx = PkeyCtx::new(&params).unwrap();
+        key_ctx.keygen_init().unwrap();
+        key_ctx.keygen().unwrap();
     }
 
     #[test]
