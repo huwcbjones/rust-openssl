@@ -1,4 +1,9 @@
 macro_rules! private_key_from_pem {
+    // RSA
+    ($(#[$m:meta])* $n:ident, $(#[$m2:meta])* $n2:ident, $(#[$m3:meta])* $n3:ident, Rsa<Private>, $struc: path) => {
+        private_key_from_pem!($(#[$m])* $n, $(#[$m2])* $n2, $(#[$m3])* $n3, Rsa<Private>, $struc, ffi::PEM_read_bio_RSAPrivateKey);
+    };
+
     ($(#[$m:meta])* $n:ident, $(#[$m2:meta])* $n2:ident, $(#[$m3:meta])* $n3:ident, $t:ty, $struc: path, $f:path) => {
         from_pem!($(#[$m])* $n, $t, $struc, $f);
 
@@ -84,6 +89,11 @@ macro_rules! private_key_from_pem {
 }
 
 macro_rules! private_key_to_pem {
+    // RSA
+    ($(#[$m:meta])* $n:ident, $(#[$m2:meta])* $n2:ident, Id::RSA, $sel:path, $struc:path) => {
+        private_key_to_pem!($(#[$m])* $n, $(#[$m2])* $n2, $sel, $struc, ffi::PEM_write_bio_RSAPrivateKey);
+    };
+
     ($(#[$m:meta])* $n:ident, $(#[$m2:meta])* $n2:ident, $sel:path, $struc:path, $f:path) => {
         $(#[$m])*
         pub fn $n(&self) -> Result<Vec<u8>, crate::error::ErrorStack> {
@@ -174,6 +184,17 @@ macro_rules! private_key_to_pem {
 }
 
 macro_rules! to_pem {
+    // RSA
+    ($(#[$m:meta])* $n:ident, Id::RSA, Selection::PublicKey) => {
+        to_pem!($(#[$m])* $n, Selection::PublicKey, Structure::SubjectPublicKeyInfo, ffi::PEM_write_bio_RSA_PUBKEY);
+    };
+    ($(#[$m:meta])* $n:ident, Id::RSA, Selection::PublicKey, Structure::PKCS1) => {
+        to_pem!($(#[$m])* $n, Selection::PublicKey, Structure::PKCS1, ffi::PEM_write_bio_RSAPublicKey);
+    };
+    ($(#[$m:meta])* $n:ident, Id::RSA, Selection::Keypair, $struc:path) => {
+        to_pem!($(#[$m])* $n, Selection::Keypair, $struc, ffi::i2d_RSAPrivateKey);
+    };
+
     ($(#[$m:meta])* $n:ident, $sel:path, $struc:path, $f:path) => {
         $(#[$m])*
         pub fn $n(&self) -> Result<Vec<u8>, crate::error::ErrorStack> {
@@ -204,6 +225,17 @@ macro_rules! to_pem {
 }
 
 macro_rules! to_der {
+    // RSA
+    ($(#[$m:meta])* $n:ident, Id::RSA, Selection::PublicKey) => {
+        to_der!($(#[$m])* $n, Selection::PublicKey, Structure::SubjectPublicKeyInfo, ffi::i2d_RSA_PUBKEY);
+    };
+    ($(#[$m:meta])* $n:ident, Id::RSA, Selection::PublicKey, Structure::PKCS1) => {
+        to_der!($(#[$m])* $n, Selection::PublicKey, Structure::PKCS1, ffi::i2d_RSAPublicKey);
+    };
+    ($(#[$m:meta])* $n:ident, Id::RSA, Selection::Keypair, $struc:path) => {
+        to_der!($(#[$m])* $n, Selection::Keypair, $struc, ffi::i2d_RSAPrivateKey);
+    };
+
     ($(#[$m:meta])* $n:ident, $sel:path, $struc:path, $f:path) => {
         $(#[$m])*
         pub fn $n(&self) -> Result<Vec<u8>, crate::error::ErrorStack> {
@@ -240,6 +272,17 @@ macro_rules! to_der {
 }
 
 macro_rules! from_der {
+    // RSA
+    ($(#[$m:meta])* $n:ident, Rsa<Public>) => {
+        from_der!($(#[$m])* $n, Rsa<Public>, Structure::SubjectPublicKeyInfo, ffi::d2i_RSA_PUBKEY);
+    };
+    ($(#[$m:meta])* $n:ident, Rsa<Public>, Structure::PKCS1) => {
+        from_der!($(#[$m])* $n, Rsa<Public>, Structure::PKCS1, ffi::d2i_RSAPublicKey);
+    };
+    ($(#[$m:meta])* $n:ident, Rsa<Private>, $struc:path) => {
+        from_der!($(#[$m])* $n, Rsa<Private>, $struc, ffi::d2i_RSAPrivateKey);
+    };
+
     ($(#[$m:meta])* $n:ident, $t:ty, $struc: path, $f:path) => {
         $(#[$m])*
         pub fn $n(der: &[u8]) -> Result<$t, crate::error::ErrorStack> {
@@ -274,6 +317,14 @@ macro_rules! from_der {
 }
 
 macro_rules! from_pem {
+    // RSA
+    ($(#[$m:meta])* $n:ident, Rsa<Public>) => {
+        from_pem!($(#[$m])* $n, Rsa<Public>, Structure::SubjectPublicKeyInfo, ffi::PEM_read_bio_RSA_PUBKEY);
+    };
+    ($(#[$m:meta])* $n:ident, Rsa<Public>, Structure::PKCS1) => {
+        from_pem!($(#[$m])* $n, Rsa<Public>, Structure::PKCS1, ffi::PEM_read_bio_RSAPublicKey);
+    };
+
     ($(#[$m:meta])* $n:ident, $t:ty, $struc: path, $f:path) => {
         $(#[$m])*
         pub fn $n(pem: &[u8]) -> Result<$t, crate::error::ErrorStack> {
