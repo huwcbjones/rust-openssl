@@ -598,6 +598,9 @@ extern "C" {
         params: *mut OSSL_PARAM,
     ) -> c_int;
 
+    #[cfg(ossl110)]
+    pub fn EVP_PKEY_check(ctx: *mut EVP_PKEY_CTX) -> c_int;
+
     pub fn EVP_PKEY_sign_init(ctx: *mut EVP_PKEY_CTX) -> c_int;
     pub fn EVP_PKEY_sign(
         ctx: *mut EVP_PKEY_CTX,
