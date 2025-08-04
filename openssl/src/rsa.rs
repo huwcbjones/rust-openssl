@@ -27,14 +27,31 @@ use cfg_if::cfg_if;
 use foreign_types::{ForeignType, ForeignTypeRef};
 use libc::c_int;
 use std::fmt;
+#[cfg(not(ossl300))]
+use std::marker::PhantomData;
+#[cfg(not(ossl300))]
 use std::mem;
+#[cfg(not(ossl300))]
 use std::ptr;
 
 use crate::bn::{BigNum, BigNumRef};
+#[cfg(ossl300)]
+use crate::encdec::Structure;
 use crate::error::ErrorStack;
-use crate::pkey::{HasPrivate, HasPublic, Private, Public};
+#[cfg(ossl300)]
+use crate::params::{ParamBuilder, Params};
+#[cfg(ossl300)]
+use crate::pkey::PKeyRef;
+use crate::pkey::{HasPrivate, HasPublic, Id, PKey, Private, Public};
+#[cfg(ossl300)]
+use crate::pkey_ctx::pkey_from_params;
+use crate::pkey_ctx::PkeyCtx;
+#[cfg(ossl300)]
+use crate::pkey_ctx::Selection;
+#[cfg(not(ossl300))]
 use crate::util::ForeignTypeRefExt;
-use crate::{cvt, cvt_n, cvt_p, LenType};
+#[cfg(not(ossl300))]
+use crate::cvt_p;
 use openssl_macros::corresponds;
 
 /// Type of encryption padding to use.
@@ -63,34 +80,111 @@ impl Padding {
     }
 }
 
-generic_foreign_type_and_impl_send_sync! {
-    type CType = ffi::RSA;
-    fn drop = ffi::RSA_free;
+cfg_if! {
+    if #[cfg(ossl300)] {
+        pub struct Rsa<T>(PKey<T>);
 
-    /// An RSA key.
-    pub struct Rsa<T>;
+        impl<T> ForeignType for Rsa<T> {
+            type CType = ffi::EVP_PKEY;
+            type Ref = RsaRef<T>;
 
-    /// Reference to `RSA`
-    pub struct RsaRef<T>;
-}
+            #[inline]
+            unsafe fn from_ptr(ptr: *mut ffi::EVP_PKEY) -> Rsa<T> {
+                Rsa(PKey::from_ptr(ptr))
+            }
 
-impl<T> Clone for Rsa<T> {
-    fn clone(&self) -> Rsa<T> {
-        (**self).to_owned()
-    }
-}
+            #[inline]
+            fn as_ptr(&self) -> *mut ffi::EVP_PKEY {
+                self.0.as_ptr()
+            }
+        }
 
-impl<T> ToOwned for RsaRef<T> {
-    type Owned = Rsa<T>;
+        impl<T> Clone for Rsa<T> {
+            #[inline]
+            fn clone(&self) -> Rsa<T> {
+                Rsa(self.0.clone())
+            }
+        }
 
-    fn to_owned(&self) -> Rsa<T> {
-        unsafe {
-            ffi::RSA_up_ref(self.as_ptr());
-            Rsa::from_ptr(self.as_ptr())
+        impl<T> ToOwned for RsaRef<T> {
+            type Owned = Rsa<T>;
+
+            #[inline]
+            fn to_owned(&self) -> Rsa<T> {
+                self.0.rsa().unwrap()
+            }
+        }
+
+        impl<T> std::ops::Deref for Rsa<T> {
+            type Target = RsaRef<T>;
+
+            #[inline]
+            fn deref(&self) -> &RsaRef<T> {
+                unsafe { RsaRef::from_ptr(self.as_ptr()) }
+            }
+        }
+
+        impl<T> std::ops::DerefMut for Rsa<T> {
+            #[inline]
+            fn deref_mut(&mut self) -> &mut RsaRef<T> {
+                unsafe { RsaRef::from_ptr_mut(self.as_ptr()) }
+            }
+        }
+
+        impl<T> std::borrow::Borrow<RsaRef<T>> for Rsa<T> {
+            #[inline]
+            fn borrow(&self) -> &RsaRef<T> {
+                self
+            }
+        }
+
+        impl<T> AsRef<RsaRef<T>> for Rsa<T> {
+            #[inline]
+            fn as_ref(&self) -> &RsaRef<T> {
+                self
+            }
+        }
+
+        pub struct RsaRef<T>(PKeyRef<T>);
+
+        impl<T> ForeignTypeRef for RsaRef<T> {
+            type CType = ffi::EVP_PKEY;
+        }
+
+        unsafe impl<T> Send for Rsa<T>{}
+        unsafe impl<T> Send for RsaRef<T>{}
+        unsafe impl<T> Sync for Rsa<T>{}
+        unsafe impl<T> Sync for RsaRef<T>{}
+    } else {
+        generic_foreign_type_and_impl_send_sync! {
+            type CType = ffi::RSA;
+            fn drop = ffi::RSA_free;
+
+            /// An RSA key.
+            pub struct Rsa<T>;
+
+            /// Reference to `RSA`
+            pub struct RsaRef<T>;
+        }
+
+        impl<T> Clone for Rsa<T> {
+            fn clone(&self) -> Rsa<T> {
+                (**self).to_owned()
+            }
+        }
+
+        impl<T> ToOwned for RsaRef<T> {
+            type Owned = Rsa<T>;
+
+            fn to_owned(&self) -> Rsa<T> {
+                unsafe {
+                    ffi::RSA_up_ref(self.as_ptr());
+                    Rsa::from_ptr(self.as_ptr())
+                }
+            }
         }
     }
 }
-
 impl<T> RsaRef<T>
 where
     T: HasPrivate,
@@ -99,20 +193,21 @@ where
         /// Serializes the private key to a PEM-encoded PKCS#1 RSAPrivateKey structure.
         ///
         /// The output will have a header of `-----BEGIN RSA PRIVATE KEY-----`.
-        #[corresponds(PEM_write_bio_RSAPrivateKey)]
         private_key_to_pem,
+
         /// Serializes the private key to a PEM-encoded encrypted PKCS#1 RSAPrivateKey structure.
         ///
         /// The output will have a header of `-----BEGIN RSA PRIVATE KEY-----`.
-        #[corresponds(PEM_write_bio_RSAPrivateKey)]
         private_key_to_pem_passphrase,
+        Selection::Keypair,
         ffi::PEM_write_bio_RSAPrivateKey
     }
 
     to_der! {
         /// Serializes the private key to a DER-encoded PKCS#1 RSAPrivateKey structure.
-        #[corresponds(i2d_RSAPrivateKey)]
         private_key_to_der,
+        Selection::Keypair,
+        Structure::PKCS1,
         ffi::i2d_RSAPrivateKey
     }
 
@@ -122,7 +217,6 @@ where
     ///
     /// Panics if `self` has no private components, or if `to` is smaller
     /// than `self.size()`.
-    #[corresponds(RSA_private_decrypt)]
     pub fn private_decrypt(
         &self,
         from: &[u8],
@@ -132,16 +226,11 @@ where
         assert!(from.len() <= i32::MAX as usize);
         assert!(to.len() >= self.size() as usize);
 
-        unsafe {
-            let len = cvt_n(ffi::RSA_private_decrypt(
-                from.len() as LenType,
-                from.as_ptr(),
-                to.as_mut_ptr(),
-                self.as_ptr(),
-                padding.0,
-            ))?;
-            Ok(len as usize)
-        }
+        let pkey: PKey<T> = self.into();
+        let mut ctx = PkeyCtx::new(&pkey)?;
+        ctx.decrypt_init()?;
+        ctx.set_rsa_padding(padding)?;
+        ctx.decrypt(from, Some(to))
     }
 
     /// Encrypts data using the private key, returning the number of encrypted bytes.
@@ -150,7 +239,6 @@ where
     ///
     /// Panics if `self` has no private components, or if `to` is smaller
     /// than `self.size()`.
-    #[corresponds(RSA_private_encrypt)]
     pub fn private_encrypt(
         &self,
         from: &[u8],
@@ -160,21 +248,20 @@ where
         assert!(from.len() <= i32::MAX as usize);
         assert!(to.len() >= self.size() as usize);
 
-        unsafe {
-            let len = cvt_n(ffi::RSA_private_encrypt(
-                from.len() as LenType,
-                from.as_ptr(),
-                to.as_mut_ptr(),
-                self.as_ptr(),
-                padding.0,
-            ))?;
-            Ok(len as usize)
-        }
+        let pkey: PKey<T> = self.into();
+        let mut ctx = PkeyCtx::new(&pkey)?;
+        ctx.sign_init()?;
+        ctx.set_rsa_padding(padding)?;
+        ctx.sign(from, Some(to))
     }
 
     /// Returns a reference to the private exponent of the key.
     #[corresponds(RSA_get0_key)]
     pub fn d(&self) -> &BigNumRef {
+        #[cfg(ossl300)]
+        return self.0.get_bn_param("d").unwrap();
+
+        #[cfg(not(ossl300))]
         unsafe {
             let mut d = ptr::null();
             RSA_get0_key(self.as_ptr(), ptr::null_mut(), ptr::null_mut(), &mut d);
@@ -185,6 +272,10 @@ where
     /// Returns a reference to the first factor of the exponent of the key.
     #[corresponds(RSA_get0_factors)]
     pub fn p(&self) -> Option<&BigNumRef> {
+        #[cfg(ossl300)]
+        return self.0.get_bn_param("rsa-factor1").ok();
+
+        #[cfg(not(ossl300))]
         unsafe {
             let mut p = ptr::null();
             RSA_get0_factors(self.as_ptr(), &mut p, ptr::null_mut());
@@ -195,6 +286,10 @@ where
     /// Returns a reference to the second factor of the exponent of the key.
     #[corresponds(RSA_get0_factors)]
     pub fn q(&self) -> Option<&BigNumRef> {
+        #[cfg(ossl300)]
+        return self.0.get_bn_param("rsa-factor2").ok();
+
+        #[cfg(not(ossl300))]
         unsafe {
             let mut q = ptr::null();
             RSA_get0_factors(self.as_ptr(), ptr::null_mut(), &mut q);
@@ -205,6 +300,10 @@ where
     /// Returns a reference to the first exponent used for CRT calculations.
     #[corresponds(RSA_get0_crt_params)]
     pub fn dmp1(&self) -> Option<&BigNumRef> {
+        #[cfg(ossl300)]
+        return self.0.get_bn_param("rsa-exponent1").ok();
+
+        #[cfg(not(ossl300))]
         unsafe {
             let mut dp = ptr::null();
             RSA_get0_crt_params(self.as_ptr(), &mut dp, ptr::null_mut(), ptr::null_mut());
@@ -215,6 +314,10 @@ where
     /// Returns a reference to the second exponent used for CRT calculations.
     #[corresponds(RSA_get0_crt_params)]
     pub fn dmq1(&self) -> Option<&BigNumRef> {
+        #[cfg(ossl300)]
+        return self.0.get_bn_param("rsa-exponent2").ok();
+
+        #[cfg(not(ossl300))]
         unsafe {
             let mut dq = ptr::null();
             RSA_get0_crt_params(self.as_ptr(), ptr::null_mut(), &mut dq, ptr::null_mut());
@@ -225,6 +328,10 @@ where
     /// Returns a reference to the coefficient used for CRT calculations.
     #[corresponds(RSA_get0_crt_params)]
     pub fn iqmp(&self) -> Option<&BigNumRef> {
+        #[cfg(ossl300)]
+        return self.0.get_bn_param("rsa-coefficient1").ok();
+
+        #[cfg(not(ossl300))]
         unsafe {
             let mut qi = ptr::null();
             RSA_get0_crt_params(self.as_ptr(), ptr::null_mut(), ptr::null_mut(), &mut qi);
@@ -233,21 +340,38 @@ where
     }
 
     /// Validates RSA parameters for correctness
-    #[corresponds(RSA_check_key)]
+    #[corresponds(EVP_PKEY_check)]
     pub fn check_key(&self) -> Result<bool, ErrorStack> {
-        unsafe {
-            let result = ffi::RSA_check_key(self.as_ptr());
-            if result != 1 {
-                let errors = ErrorStack::get();
-                if errors.errors().is_empty() {
-                    Ok(false)
+        let result = {
+            cfg_if! {
+                if #[cfg(ossl300)] {
+                    let ctx = PkeyCtx::new(&self.0)?;
+                    unsafe {
+                        ffi::EVP_PKEY_check(ctx.as_ptr())
+                    }
                 } else {
-                    Err(errors)
+                    unsafe {
+                        ffi::RSA_check_key(self.as_ptr())
+                    }
                 }
-            } else {
-                Ok(true)
             }
+        };
+        if result != 1 {
+            let errors = ErrorStack::get();
+            if errors.errors().is_empty() {
+                Ok(false)
+            } else {
+                Err(errors)
+            }
+        } else {
+            Ok(true)
         }
+    }
+}
+
+impl<T> From<&RsaRef<T>> for PKey<T> {
+    fn from(value: &RsaRef<T>) -> Self {
+        PKey::from_rsa(value.to_owned()).unwrap()
     }
 }
 
@@ -259,15 +383,17 @@ where
         /// Serializes the public key into a PEM-encoded SubjectPublicKeyInfo structure.
         ///
         /// The output will have a header of `-----BEGIN PUBLIC KEY-----`.
-        #[corresponds(PEM_write_bio_RSA_PUBKEY)]
         public_key_to_pem,
+        Selection::PublicKey,
+        Structure::SubjectPublicKeyInfo,
         ffi::PEM_write_bio_RSA_PUBKEY
     }
 
     to_der! {
         /// Serializes the public key into a DER-encoded SubjectPublicKeyInfo structure.
-        #[corresponds(i2d_RSA_PUBKEY)]
         public_key_to_der,
+        Selection::PublicKey,
+        Structure::SubjectPublicKeyInfo,
         ffi::i2d_RSA_PUBKEY
     }
 
@@ -275,22 +401,32 @@ where
         /// Serializes the public key into a PEM-encoded PKCS#1 RSAPublicKey structure.
         ///
         /// The output will have a header of `-----BEGIN RSA PUBLIC KEY-----`.
-        #[corresponds(PEM_write_bio_RSAPublicKey)]
+        #[corresponds(PEM_write_bio_PUBKEY)]
         public_key_to_pem_pkcs1,
+        Selection::PublicKey,
+        Structure::PKCS1,
         ffi::PEM_write_bio_RSAPublicKey
     }
 
     to_der! {
         /// Serializes the public key into a DER-encoded PKCS#1 RSAPublicKey structure.
-        #[corresponds(i2d_RSAPublicKey)]
+        #[corresponds(i2d_PUBKEY)]
         public_key_to_der_pkcs1,
+        Selection::PublicKey,
+        Structure::PKCS1,
         ffi::i2d_RSAPublicKey
     }
 
     /// Returns the size of the modulus in bytes.
-    #[corresponds(RSA_size)]
     pub fn size(&self) -> u32 {
-        unsafe { ffi::RSA_size(self.as_ptr()) as u32 }
+        #[cfg(ossl300)]
+        unsafe {
+            ffi::EVP_PKEY_get_size(self.as_ptr()) as u32
+        }
+        #[cfg(not(ossl300))]
+        unsafe {
+            ffi::RSA_size(self.as_ptr()) as u32
+        }
     }
 
     /// Decrypts data using the public key, returning the number of decrypted bytes.
@@ -308,16 +444,11 @@ where
         assert!(from.len() <= i32::MAX as usize);
         assert!(to.len() >= self.size() as usize);
 
-        unsafe {
-            let len = cvt_n(ffi::RSA_public_decrypt(
-                from.len() as LenType,
-                from.as_ptr(),
-                to.as_mut_ptr(),
-                self.as_ptr(),
-                padding.0,
-            ))?;
-            Ok(len as usize)
-        }
+        let pkey: PKey<T> = self.into();
+        let mut ctx = PkeyCtx::new(&pkey)?;
+        ctx.verify_recover_init()?;
+        ctx.set_rsa_padding(padding)?;
+        ctx.verify_recover(from, Some(to))
     }
 
     /// Encrypts data using the public key, returning the number of encrypted bytes.
@@ -335,21 +466,20 @@ where
         assert!(from.len() <= i32::MAX as usize);
         assert!(to.len() >= self.size() as usize);
 
-        unsafe {
-            let len = cvt_n(ffi::RSA_public_encrypt(
-                from.len() as LenType,
-                from.as_ptr(),
-                to.as_mut_ptr(),
-                self.as_ptr(),
-                padding.0,
-            ))?;
-            Ok(len as usize)
-        }
+        let pkey: PKey<T> = self.into();
+        let mut ctx = PkeyCtx::new(&pkey)?;
+        ctx.encrypt_init()?;
+        ctx.set_rsa_padding(padding)?;
+        ctx.encrypt(from, Some(to))
     }
 
     /// Returns a reference to the modulus of the key.
     #[corresponds(RSA_get0_key)]
     pub fn n(&self) -> &BigNumRef {
+        #[cfg(ossl300)]
+        return self.0.get_bn_param("n").unwrap();
+
+        #[cfg(not(ossl300))]
         unsafe {
             let mut n = ptr::null();
             RSA_get0_key(self.as_ptr(), &mut n, ptr::null_mut(), ptr::null_mut());
@@ -360,6 +490,10 @@ where
     /// Returns a reference to the public exponent of the key.
     #[corresponds(RSA_get0_key)]
     pub fn e(&self) -> &BigNumRef {
+        #[cfg(ossl300)]
+        return self.0.get_bn_param("e").unwrap();
+
+        #[cfg(not(ossl300))]
         unsafe {
             let mut e = ptr::null();
             RSA_get0_key(self.as_ptr(), ptr::null_mut(), &mut e, ptr::null_mut());
@@ -379,6 +513,16 @@ impl Rsa<Public> {
     /// [`RSA_new`]: https://docs.openssl.org/master/man3/RSA_new/
     /// [`RSA_set0_key`]: https://docs.openssl.org/master/man3/RSA_set0_key/
     pub fn from_public_components(n: BigNum, e: BigNum) -> Result<Rsa<Public>, ErrorStack> {
+        #[cfg(ossl300)]
+        {
+            let params = ParamBuilder::new()
+                .push_bignum(c"n", &n)?
+                .push_bignum(c"e", &e)?
+                .build()?;
+            pkey_from_params(Id::RSA, &params)?.rsa()
+        }
+
+        #[cfg(not(ossl300))]
         unsafe {
             let rsa = cvt_p(ffi::RSA_new())?;
             RSA_set0_key(rsa, n.as_ptr(), e.as_ptr(), ptr::null_mut());
@@ -391,9 +535,9 @@ impl Rsa<Public> {
         /// Decodes a PEM-encoded SubjectPublicKeyInfo structure containing an RSA key.
         ///
         /// The input should have a header of `-----BEGIN PUBLIC KEY-----`.
-        #[corresponds(PEM_read_bio_RSA_PUBKEY)]
         public_key_from_pem,
         Rsa<Public>,
+        Structure::SubjectPublicKeyInfo,
         ffi::PEM_read_bio_RSA_PUBKEY
     }
 
@@ -401,50 +545,65 @@ impl Rsa<Public> {
         /// Decodes a PEM-encoded PKCS#1 RSAPublicKey structure.
         ///
         /// The input should have a header of `-----BEGIN RSA PUBLIC KEY-----`.
-        #[corresponds(PEM_read_bio_RSAPublicKey)]
         public_key_from_pem_pkcs1,
         Rsa<Public>,
+        Structure::PKCS1,
         ffi::PEM_read_bio_RSAPublicKey
     }
 
     from_der! {
         /// Decodes a DER-encoded SubjectPublicKeyInfo structure containing an RSA key.
-        #[corresponds(d2i_RSA_PUBKEY)]
+        #[corresponds(d2i_PUBKEY)]
         public_key_from_der,
         Rsa<Public>,
+        Structure::SubjectPublicKeyInfo,
         ffi::d2i_RSA_PUBKEY
     }
 
     from_der! {
         /// Decodes a DER-encoded PKCS#1 RSAPublicKey structure.
-        #[corresponds(d2i_RSAPublicKey)]
+        #[corresponds(d2i_PUBKEY)]
         public_key_from_der_pkcs1,
         Rsa<Public>,
+        Structure::PKCS1,
         ffi::d2i_RSAPublicKey
     }
 }
 
-pub struct RsaPrivateKeyBuilder {
+pub struct RsaPrivateKeyBuilder<'a> {
+    #[cfg(ossl300)]
+    params: Params<'a>,
+
+    #[cfg(not(ossl300))]
     rsa: Rsa<Private>,
+    #[cfg(not(ossl300))]
+    _pd: PhantomData<&'a ()>,
 }
 
-impl RsaPrivateKeyBuilder {
+impl<'a> RsaPrivateKeyBuilder<'a> {
     /// Creates a new `RsaPrivateKeyBuilder`.
     ///
     /// `n` is the modulus common to both public and private key.
     /// `e` is the public exponent and `d` is the private exponent.
-    ///
-    /// This corresponds to [`RSA_new`] and uses [`RSA_set0_key`].
-    ///
-    /// [`RSA_new`]: https://docs.openssl.org/master/man3/RSA_new/
-    /// [`RSA_set0_key`]: https://docs.openssl.org/master/man3/RSA_set0_key/
-    pub fn new(n: BigNum, e: BigNum, d: BigNum) -> Result<RsaPrivateKeyBuilder, ErrorStack> {
+    pub fn new(n: BigNum, e: BigNum, d: BigNum) -> Result<RsaPrivateKeyBuilder<'a>, ErrorStack> {
+        #[cfg(ossl300)]
+        {
+            let params = ParamBuilder::new()
+                .push_bignum(c"n", &n)?
+                .push_bignum(c"e", &e)?
+                .push_bignum(c"d", &d)?
+                .build()?;
+            Ok(RsaPrivateKeyBuilder { params })
+        }
+
+        #[cfg(not(ossl300))]
         unsafe {
             let rsa = cvt_p(ffi::RSA_new())?;
             RSA_set0_key(rsa, n.as_ptr(), e.as_ptr(), d.as_ptr());
             mem::forget((n, e, d));
             Ok(RsaPrivateKeyBuilder {
                 rsa: Rsa::from_ptr(rsa),
+                _pd: PhantomData,
             })
         }
     }
@@ -452,42 +611,74 @@ impl RsaPrivateKeyBuilder {
     /// Sets the factors of the Rsa key.
     ///
     /// `p` and `q` are the first and second factors of `n`.
-    #[corresponds(RSA_set0_factors)]
     // FIXME should be infallible
-    pub fn set_factors(self, p: BigNum, q: BigNum) -> Result<RsaPrivateKeyBuilder, ErrorStack> {
-        unsafe {
-            RSA_set0_factors(self.rsa.as_ptr(), p.as_ptr(), q.as_ptr());
-            mem::forget((p, q));
+    pub fn set_factors(self, p: BigNum, q: BigNum) -> Result<RsaPrivateKeyBuilder<'a>, ErrorStack> {
+        #[cfg(ossl300)]
+        {
+            let factors = ParamBuilder::new()
+                .push_bignum(c"rsa-factor1", &p)?
+                .push_bignum(c"rsa-factor2", &q)?
+                .build()?;
+            let params = self.params.merge(&factors)?;
+            Ok(RsaPrivateKeyBuilder { params })
         }
-        Ok(self)
+
+        #[cfg(not(ossl300))]
+        {
+            unsafe {
+                RSA_set0_factors(self.rsa.as_ptr(), p.as_ptr(), q.as_ptr());
+            }
+            mem::forget((p, q));
+            Ok(self)
+        }
     }
 
     /// Sets the Chinese Remainder Theorem params of the Rsa key.
     ///
     /// `dmp1`, `dmq1`, and `iqmp` are the exponents and coefficient for
     /// CRT calculations which is used to speed up RSA operations.
-    #[corresponds(RSA_set0_crt_params)]
     // FIXME should be infallible
     pub fn set_crt_params(
         self,
         dmp1: BigNum,
         dmq1: BigNum,
         iqmp: BigNum,
-    ) -> Result<RsaPrivateKeyBuilder, ErrorStack> {
-        unsafe {
-            RSA_set0_crt_params(
-                self.rsa.as_ptr(),
-                dmp1.as_ptr(),
-                dmq1.as_ptr(),
-                iqmp.as_ptr(),
-            );
-            mem::forget((dmp1, dmq1, iqmp));
+    ) -> Result<RsaPrivateKeyBuilder<'a>, ErrorStack> {
+        #[cfg(ossl300)]
+        {
+            let crt_params = ParamBuilder::new()
+                .push_bignum(c"rsa-exponent1", &dmp1)?
+                .push_bignum(c"rsa-exponent2", &dmq1)?
+                .push_bignum(c"rsa-coefficient1", &iqmp)?
+                .build()?;
+            let params = self.params.merge(&crt_params)?;
+            Ok(RsaPrivateKeyBuilder { params })
         }
-        Ok(self)
+
+        #[cfg(not(ossl300))]
+        {
+            unsafe {
+                RSA_set0_crt_params(
+                    self.rsa.as_ptr(),
+                    dmp1.as_ptr(),
+                    dmq1.as_ptr(),
+                    iqmp.as_ptr(),
+                );
+            }
+            mem::forget((dmp1, dmq1, iqmp));
+            Ok(self)
+        }
     }
 
     /// Returns the Rsa key.
     pub fn build(self) -> Rsa<Private> {
+        #[cfg(ossl300)]
+        return pkey_from_params(Id::RSA, &self.params)
+            .unwrap()
+            .rsa()
+            .unwrap();
+
+        #[cfg(not(ossl300))]
         self.rsa
     }
 }
@@ -538,19 +729,13 @@ impl Rsa<Private> {
     /// Unless you have specific needs and know what you're doing, use `Rsa::generate` instead.
     #[corresponds(RSA_generate_key_ex)]
     pub fn generate_with_e(bits: u32, e: &BigNumRef) -> Result<Rsa<Private>, ErrorStack> {
-        unsafe {
-            let rsa = Rsa::from_ptr(cvt_p(ffi::RSA_new())?);
-            cvt(ffi::RSA_generate_key_ex(
-                rsa.0,
-                bits as c_int,
-                e.as_ptr(),
-                ptr::null_mut(),
-            ))?;
-            Ok(rsa)
-        }
+        let mut ctx = PkeyCtx::new_id(Id::RSA)?;
+        ctx.keygen_init()?;
+        ctx.set_rsa_keygen_bits(bits)?;
+        ctx.set_rsa_keygen_pubexp(e)?;
+        ctx.keygen()?.rsa()
     }
 
-    // FIXME these need to identify input formats
     private_key_from_pem! {
         /// Deserializes a private key from a PEM-encoded PKCS#1 RSAPrivateKey structure.
         #[corresponds(PEM_read_bio_RSAPrivateKey)]
@@ -566,14 +751,15 @@ impl Rsa<Private> {
         #[corresponds(PEM_read_bio_RSAPrivateKey)]
         private_key_from_pem_callback,
         Rsa<Private>,
+        Structure::PKCS1,
         ffi::PEM_read_bio_RSAPrivateKey
     }
 
     from_der! {
         /// Decodes a DER-encoded PKCS#1 RSAPrivateKey structure.
-        #[corresponds(d2i_RSAPrivateKey)]
         private_key_from_der,
         Rsa<Private>,
+        Structure::PKCS1,
         ffi::d2i_RSAPrivateKey
     }
 }
@@ -584,6 +770,7 @@ impl<T> fmt::Debug for Rsa<T> {
     }
 }
 
+#[cfg(not(ossl300))]
 cfg_if! {
     if #[cfg(any(ossl110, libressl273, boringssl, awslc))] {
         use ffi::{

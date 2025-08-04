@@ -53,8 +53,6 @@ use crate::error::ErrorStack;
 use crate::pkey_ctx::PkeyCtx;
 use crate::rsa::Rsa;
 use crate::symm::Cipher;
-#[cfg(ossl300)]
-use crate::util::ForeignTypeRefExt;
 use crate::util::{c_str, invoke_passwd_cb, CallbackState};
 use crate::{cvt, cvt_p};
 use cfg_if::cfg_if;
@@ -237,12 +235,18 @@ impl<T> ToOwned for PKeyRef<T> {
 
 impl<T> PKeyRef<T> {
     /// Returns a copy of the internal RSA key.
-    #[corresponds(EVP_PKEY_get1_RSA)]
     pub fn rsa(&self) -> Result<Rsa<T>, ErrorStack> {
-        unsafe {
-            let rsa = cvt_p(ffi::EVP_PKEY_get1_RSA(self.as_ptr()))?;
-            Ok(Rsa::from_ptr(rsa))
+        if self.id() != Id::RSA {
+            return Err(ErrorStack::get());
         }
+
+        let rsa = self.as_ptr();
+        #[cfg(ossl300)]
+        cvt(unsafe { ffi::EVP_PKEY_up_ref(rsa) })?;
+        #[cfg(not(ossl300))]
+        let rsa = cvt_p(unsafe { ffi::EVP_PKEY_get1_RSA(rsa) })?;
+
+        Ok(unsafe { Rsa::from_ptr(rsa) })
     }
 
     /// Returns a copy of the internal DSA key.
@@ -297,7 +301,7 @@ impl<T> PKeyRef<T> {
                 key.as_ptr(),
                 &mut value,
             ))?;
-            Ok(BigNumRef::from_const_ptr(value))
+            Ok(BigNumRef::from_ptr(value))
         }
     }
 
@@ -511,16 +515,24 @@ impl<T> Clone for PKey<T> {
 
 impl<T> PKey<T> {
     /// Creates a new `PKey` containing an RSA key.
-    #[corresponds(EVP_PKEY_set1_RSA)]
     pub fn from_rsa(rsa: Rsa<T>) -> Result<PKey<T>, ErrorStack> {
         // TODO: Next time we make backwards incompatible changes, this could
         // become an `&RsaRef<T>`. Same for all the other `from_*` methods.
+        let pkey: PKey<T>;
+
+        #[cfg(ossl300)]
+        unsafe {
+            EVP_PKEY_up_ref(rsa.as_ptr());
+            pkey = PKey::from_ptr(rsa.as_ptr());
+        }
+
+        #[cfg(not(ossl300))]
         unsafe {
             let evp = cvt_p(ffi::EVP_PKEY_new())?;
-            let pkey = PKey::from_ptr(evp);
+            pkey = PKey::from_ptr(evp);
             cvt(ffi::EVP_PKEY_set1_RSA(pkey.0, rsa.as_ptr()))?;
-            Ok(pkey)
         }
+        Ok(pkey)
     }
 
     /// Creates a new `PKey` containing a DSA key.
