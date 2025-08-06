@@ -683,6 +683,7 @@ cfg_if! {
 #[cfg(test)]
 mod test {
     use crate::symm::Cipher;
+    use std::cmp::Ordering;
 
     use super::*;
 
@@ -887,6 +888,57 @@ mod test {
     fn clone() {
         let key = Rsa::generate(2048).unwrap();
         drop(key.clone());
+    }
+
+    fn assert_bn_eq(bn1: &BigNumRef, bn2: &BigNumRef, name: &str) {
+        assert_eq!(
+            bn1.ucmp(bn2),
+            Ordering::Equal,
+            "{name}1: {}\n, {name}2: {}\n",
+            bn1.to_hex_str().unwrap(),
+            bn2.to_hex_str().unwrap(),
+        );
+    }
+
+    fn assert_opt_bn_eq(bn1: Option<&BigNumRef>, bn2: Option<&BigNumRef>, name: &str) {
+        match (bn1, bn2) {
+            (Some(bn1), Some(bn2)) => assert_bn_eq(bn1, bn2, name),
+            (None, None) => (),
+            (Some(v), None) => panic!(
+                "{name}1: Some({})\n, {name}2: None\n",
+                v.to_hex_str().unwrap()
+            ),
+            (None, Some(v)) => panic!(
+                "{name}1: None)\n, {name}2: Some({}\n",
+                v.to_hex_str().unwrap()
+            ),
+        }
+    }
+
+    #[test]
+    fn test_private_key_builder() {
+        let key = include_bytes!("../test/rsa.pem");
+        let rsa = Rsa::private_key_from_pem_passphrase(key, b"mypass").unwrap();
+
+        let rsa2 = Rsa::from_private_components(
+            rsa.n().to_owned().unwrap(),
+            rsa.e().to_owned().unwrap(),
+            rsa.d().to_owned().unwrap(),
+            rsa.p().unwrap().to_owned().unwrap(),
+            rsa.q().unwrap().to_owned().unwrap(),
+            rsa.dmp1().unwrap().to_owned().unwrap(),
+            rsa.dmq1().unwrap().to_owned().unwrap(),
+            rsa.iqmp().unwrap().to_owned().unwrap(),
+        )
+        .unwrap();
+        assert_bn_eq(rsa.n(), rsa2.n(), "n");
+        assert_bn_eq(rsa.e(), rsa2.e(), "e");
+        assert_bn_eq(rsa.d(), rsa2.d(), "d");
+        assert_opt_bn_eq(rsa.p(), rsa2.p(), "p");
+        assert_opt_bn_eq(rsa.q(), rsa2.q(), "q");
+        assert_opt_bn_eq(rsa.dmp1(), rsa2.dmp1(), "dmp1");
+        assert_opt_bn_eq(rsa.dmq1(), rsa2.dmq1(), "dmq1");
+        assert_opt_bn_eq(rsa.iqmp(), rsa2.iqmp(), "iqmp");
     }
 
     #[test]
