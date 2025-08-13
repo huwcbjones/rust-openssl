@@ -682,8 +682,10 @@ cfg_if! {
 
 #[cfg(test)]
 mod test {
+    use crate::base64;
     use crate::symm::Cipher;
     use std::cmp::Ordering;
+    use std::str::from_utf8;
 
     use super::*;
 
@@ -749,6 +751,14 @@ mod test {
     }
 
     #[test]
+    fn test_to_pem() {
+        let expected = include_bytes!("../test/rsa.pem");
+        let key = Rsa::private_key_from_pem(expected).unwrap();
+        let pem = key.private_key_to_pem().unwrap();
+        assert_eq!(from_utf8(&pem).unwrap(), from_utf8(expected).unwrap());
+    }
+
+    #[test]
     fn test_to_password() {
         let key = Rsa::generate(2048).unwrap();
         let pem = key
@@ -756,6 +766,13 @@ mod test {
             .unwrap();
         Rsa::private_key_from_pem_passphrase(&pem, b"foobar").unwrap();
         assert!(Rsa::private_key_from_pem_passphrase(&pem, b"fizzbuzz").is_err());
+    }
+
+    #[test]
+    fn test_private_key_to_der() {
+        let key = super::Rsa::private_key_from_pem(include_bytes!("../test/rsa-512.pem")).unwrap();
+        let der = key.private_key_to_der().unwrap();
+        assert_eq!(der, include_bytes!("../test/rsa-512.der"));
     }
 
     #[test]
@@ -830,9 +847,54 @@ mod test {
 
     #[test]
     fn test_public_key_to_pem_pkcs1() {
-        let keypair = super::Rsa::generate(512).unwrap();
+        let keypair =
+            super::Rsa::private_key_from_pem(include_bytes!("../test/rsa-512.pem")).unwrap();
         let pubkey_pem = keypair.public_key_to_pem_pkcs1().unwrap();
-        super::Rsa::public_key_from_pem_pkcs1(&pubkey_pem).unwrap();
+        assert_eq!(
+            from_utf8(&pubkey_pem).unwrap(),
+            "\
+-----BEGIN RSA PUBLIC KEY-----
+MEgCQQCXj1aqVDV67dZeazwmPbJKS1cbwVWxAyPBrRuvqgg1sAHz0S7dAifhKpce
+E9uQLR3RH70/ybPkvOxV+S0JQvkDAgMBAAE=
+-----END RSA PUBLIC KEY-----\n",
+        );
+    }
+
+    #[test]
+    fn test_public_key_to_pem() {
+        let keypair =
+            super::Rsa::private_key_from_pem(include_bytes!("../test/rsa-512.pem")).unwrap();
+        let pubkey_pem = keypair.public_key_to_pem().unwrap();
+        assert_eq!(
+            from_utf8(&pubkey_pem).unwrap(),
+            "\
+-----BEGIN PUBLIC KEY-----
+MFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAJePVqpUNXrt1l5rPCY9skpLVxvBVbED
+I8GtG6+qCDWwAfPRLt0CJ+Eqlx4T25AtHdEfvT/Js+S87FX5LQlC+QMCAwEAAQ==
+-----END PUBLIC KEY-----\n",
+        );
+    }
+
+    #[test]
+    fn test_public_key_to_der() {
+        let keypair =
+            super::Rsa::private_key_from_pem(include_bytes!("../test/rsa-512.pem")).unwrap();
+        let pubkey_der = keypair.public_key_to_der().unwrap();
+        assert_eq!(
+            base64::encode_block(&pubkey_der),
+            "MFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAJePVqpUNXrt1l5rPCY9skpLVxvBVbEDI8GtG6+qCDWwAfPRLt0CJ+Eqlx4T25AtHdEfvT/Js+S87FX5LQlC+QMCAwEAAQ==",
+        );
+    }
+
+    #[test]
+    fn test_public_key_to_der_pkcs1() {
+        let keypair =
+            super::Rsa::private_key_from_pem(include_bytes!("../test/rsa-512.pem")).unwrap();
+        let pubkey_der = keypair.public_key_to_der_pkcs1().unwrap();
+        assert_eq!(
+            base64::encode_block(&pubkey_der),
+            "MEgCQQCXj1aqVDV67dZeazwmPbJKS1cbwVWxAyPBrRuvqgg1sAHz0S7dAifhKpceE9uQLR3RH70/ybPkvOxV+S0JQvkDAgMBAAE=",
+        );
     }
 
     #[test]
