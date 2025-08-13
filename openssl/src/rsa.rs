@@ -759,6 +759,14 @@ mod test {
     }
 
     #[test]
+    fn test_private_key_to_der() {
+        let key = super::Rsa::generate(512).unwrap();
+        let der = key.private_key_to_der().unwrap();
+        let der_key = super::Rsa::private_key_from_der(&der).unwrap();
+        assert_eq!(der_key.n().to_vec(), key.n().to_vec());
+    }
+
+    #[test]
     fn test_public_encrypt_private_decrypt_with_padding() {
         let key = include_bytes!("../test/rsa.pem.pub");
         let public_key = Rsa::public_key_from_pem(key).unwrap();
@@ -833,6 +841,22 @@ mod test {
         let keypair = super::Rsa::generate(512).unwrap();
         let pubkey_pem = keypair.public_key_to_pem_pkcs1().unwrap();
         super::Rsa::public_key_from_pem_pkcs1(&pubkey_pem).unwrap();
+    }
+
+    #[test]
+    fn test_public_key_to_der() {
+        let keypair = super::Rsa::generate(512).unwrap();
+        let pubkey_der = keypair.public_key_to_der().unwrap();
+        let rsa = super::Rsa::public_key_from_der(&pubkey_der).unwrap();
+        assert_eq!(rsa.n().to_vec(), keypair.n().to_vec());
+    }
+
+    #[test]
+    fn test_public_key_to_der_pkcs1() {
+        let keypair = super::Rsa::generate(512).unwrap();
+        let pubkey_pem = keypair.public_key_to_der_pkcs1().unwrap();
+        let rsa = super::Rsa::public_key_from_der_pkcs1(&pubkey_pem).unwrap();
+        assert_eq!(rsa.n().to_vec(), keypair.n().to_vec());
     }
 
     #[test]
