@@ -1234,7 +1234,7 @@ mod test {
     fn assert_opt_bn_eq(bn1: Option<&BigNumRef>, bn2: Option<&BigNumRef>, name: &str) {
         match (bn1, bn2) {
             (Some(bn1), Some(bn2)) => assert_bn_eq(bn1, bn2, name),
-            (None, None) => return,
+            (None, None) => (),
             (Some(v), None) => panic!(
                 "{name}1: Some({})\n, {name}2: None\n",
                 v.to_hex_str().unwrap()
