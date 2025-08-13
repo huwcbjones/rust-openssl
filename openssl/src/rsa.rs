@@ -128,14 +128,14 @@ cfg_if! {
         impl<T> std::borrow::Borrow<RsaRef<T>> for Rsa<T> {
             #[inline]
             fn borrow(&self) -> &RsaRef<T> {
-                &**self
+                self
             }
         }
 
         impl<T> AsRef<RsaRef<T>> for Rsa<T> {
             #[inline]
             fn as_ref(&self) -> &RsaRef<T> {
-                &**self
+                self
             }
         }
 
@@ -567,7 +567,7 @@ impl Rsa<Public> {
                 .push_bignum(c"n", &n)?
                 .push_bignum(c"e", &e)?
                 .build()?;
-            return pkey_from_params(Id::RSA, &params)?.rsa();
+            pkey_from_params(Id::RSA, &params)?.rsa()
         }
 
         #[cfg(not(ossl300))]
