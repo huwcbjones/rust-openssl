@@ -1,14 +1,22 @@
 macro_rules! private_key_from_pem {
-    ($(#[$m:meta])* $n:ident, $(#[$m2:meta])* $n2:ident, $(#[$m3:meta])* $n3:ident, $t:ty, $f:path) => {
-        from_pem!($(#[$m])* $n, $t, $f);
+    ($(#[$m:meta])* $n:ident, $(#[$m2:meta])* $n2:ident, $(#[$m3:meta])* $n3:ident, $t:ty, $struc: path, $f:path) => {
+        from_pem!($(#[$m])* $n, $t, $struc, $f);
 
         $(#[$m2])*
         pub fn $n2(pem: &[u8], passphrase: &[u8]) -> Result<$t, crate::error::ErrorStack> {
+            #[cfg(ossl300)]
+            return Ok(crate::encdec::Decoder::new()
+                .set_format(crate::encdec::KeyFormat::Pem)
+                .set_structure($struc)
+                .set_passphrase(passphrase)
+                .decode(pem)?.try_into().unwrap());
+
+            #[cfg(not(ossl300))]
             unsafe {
                 ffi::init();
                 let bio = crate::bio::MemBioSlice::new(pem)?;
                 let passphrase = ::std::ffi::CString::new(passphrase).unwrap();
-                crate::cvt_p($f(bio.as_ptr(),
+                cvt_p($f(bio.as_ptr(),
                          ::std::ptr::null_mut(),
                          None,
                          passphrase.as_ptr() as *const _ as *mut _))
@@ -19,12 +27,19 @@ macro_rules! private_key_from_pem {
         $(#[$m3])*
         pub fn $n3<F>(pem: &[u8], callback: F) -> Result<$t, crate::error::ErrorStack>
             where F: FnOnce(&mut [u8]) -> Result<usize, crate::error::ErrorStack>
-        {
+        {#[cfg(ossl300)]
+            return Ok(crate::encdec::Decoder::new()
+                .set_format(crate::encdec::KeyFormat::Pem)
+                .set_structure($struc)
+                .set_passphrase_callback(callback)
+                .decode(pem)?.try_into().unwrap());
+
+            #[cfg(not(ossl300))]
             unsafe {
                 ffi::init();
                 let mut cb = crate::util::CallbackState::new(callback);
                 let bio = crate::bio::MemBioSlice::new(pem)?;
-                crate::cvt_p($f(bio.as_ptr(),
+                cvt_p($f(bio.as_ptr(),
                          ::std::ptr::null_mut(),
                          Some(crate::util::invoke_passwd_cb::<F>),
                          &mut cb as *mut _ as *mut _))
@@ -35,9 +50,15 @@ macro_rules! private_key_from_pem {
 }
 
 macro_rules! private_key_to_pem {
-    ($(#[$m:meta])* $n:ident, $(#[$m2:meta])* $n2:ident, $f:path) => {
+    ($(#[$m:meta])* $n:ident, $(#[$m2:meta])* $n2:ident, $sel:path, $f:path) => {
         $(#[$m])*
         pub fn $n(&self) -> Result<Vec<u8>, crate::error::ErrorStack> {
+            #[cfg(ossl300)]
+            return crate::encdec::Encoder::new($sel)
+                .set_format(crate::encdec::KeyFormat::Pem)
+                .encode(&self.0);
+
+            #[cfg(not(ossl300))]
             unsafe {
                 let bio = crate::bio::MemBio::new()?;
                 crate::cvt($f(bio.as_ptr(),
@@ -57,6 +78,14 @@ macro_rules! private_key_to_pem {
             cipher: crate::symm::Cipher,
             passphrase: &[u8]
         ) -> Result<Vec<u8>, crate::error::ErrorStack> {
+            #[cfg(ossl300)]
+            return crate::encdec::Encoder::new($sel)
+                .set_format(crate::encdec::KeyFormat::Pem)
+                .set_cipher(cipher)
+                .set_passphrase(passphrase)
+                .encode(&self.0);
+
+            #[cfg(not(ossl300))]
             unsafe {
                 let bio = crate::bio::MemBio::new()?;
                 assert!(passphrase.len() <= ::libc::c_int::MAX as usize);
@@ -74,9 +103,16 @@ macro_rules! private_key_to_pem {
 }
 
 macro_rules! to_pem {
-    ($(#[$m:meta])* $n:ident, $f:path) => {
+    ($(#[$m:meta])* $n:ident, $sel:path, $struc:path, $f:path) => {
         $(#[$m])*
         pub fn $n(&self) -> Result<Vec<u8>, crate::error::ErrorStack> {
+            #[cfg(ossl300)]
+            return crate::encdec::Encoder::new($sel)
+                .set_format(crate::encdec::KeyFormat::Pem)
+                .set_structure($struc)
+                .encode(&self.0);
+
+            #[cfg(not(ossl300))]
             unsafe {
                 let bio = crate::bio::MemBio::new()?;
                 crate::cvt($f(bio.as_ptr(), self.as_ptr()))?;
@@ -87,9 +123,16 @@ macro_rules! to_pem {
 }
 
 macro_rules! to_der {
-    ($(#[$m:meta])* $n:ident, $f:path) => {
+    ($(#[$m:meta])* $n:ident, $sel:path, $struc:path, $f:path) => {
         $(#[$m])*
         pub fn $n(&self) -> Result<Vec<u8>, crate::error::ErrorStack> {
+            #[cfg(ossl300)]
+            return crate::encdec::Encoder::new($sel)
+                .set_format(crate::encdec::KeyFormat::Der)
+                .set_structure($struc)
+                .encode(&self.0);
+
+            #[cfg(not(ossl300))]
             unsafe {
                 let len = crate::cvt($f(::foreign_types::ForeignTypeRef::as_ptr(self),
                                         ::std::ptr::null_mut()))?;
@@ -99,15 +142,22 @@ macro_rules! to_der {
                 Ok(buf)
             }
         }
-    };
+    }
 }
 
 macro_rules! from_der {
-    ($(#[$m:meta])* $n:ident, $t:ty, $f:path) => {
+    ($(#[$m:meta])* $n:ident, $t:ty, $struc: path, $f:path) => {
         $(#[$m])*
         pub fn $n(der: &[u8]) -> Result<$t, crate::error::ErrorStack> {
-            use std::convert::TryInto;
+            #[cfg(ossl300)]
+            return Ok(crate::encdec::Decoder::new()
+                .set_format(crate::encdec::KeyFormat::Der)
+                .set_structure($struc)
+                .decode(der)?.try_into().unwrap());
+
+            #[cfg(not(ossl300))]
             unsafe {
+                use std::convert::TryInto;
                 ffi::init();
                 let len = ::std::cmp::min(der.len(), ::libc::c_long::MAX as usize) as ::libc::c_long;
                 crate::cvt_p($f(::std::ptr::null_mut(), &mut der.as_ptr(), len.try_into().unwrap()))
@@ -118,9 +168,16 @@ macro_rules! from_der {
 }
 
 macro_rules! from_pem {
-    ($(#[$m:meta])* $n:ident, $t:ty, $f:path) => {
+    ($(#[$m:meta])* $n:ident, $t:ty, $struc: path, $f:path) => {
         $(#[$m])*
         pub fn $n(pem: &[u8]) -> Result<$t, crate::error::ErrorStack> {
+            #[cfg(ossl300)]
+            return Ok(crate::encdec::Decoder::new()
+                .set_format(crate::encdec::KeyFormat::Pem)
+                .set_structure($struc)
+                .decode(pem)?.try_into().unwrap());
+
+            #[cfg(not(ossl300))]
             unsafe {
                 crate::init();
                 let bio = crate::bio::MemBioSlice::new(pem)?;
