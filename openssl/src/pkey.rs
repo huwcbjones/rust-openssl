@@ -277,6 +277,23 @@ impl<T> PKeyRef<T> {
     pub fn size(&self) -> usize {
         unsafe { ffi::EVP_PKEY_size(self.as_ptr()) as usize }
     }
+
+    /// Validates the key parameters for correctness
+    #[corresponds(EVP_PKEY_check)]
+    #[cfg(ossl110)]
+    pub fn check_key(&self) -> Result<bool, ErrorStack> {
+        let ctx = PkeyCtx::new(self)?;
+        match cvt(unsafe { ffi::EVP_PKEY_check(ctx.as_ptr()) }) {
+            Ok(_) => Ok(true),
+            Err(e) => {
+                if e.errors().is_empty() {
+                    Ok(false)
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
 }
 
 impl<T> PKeyRef<T>
