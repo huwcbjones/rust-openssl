@@ -36,6 +36,8 @@ use std::mem;
 use std::ptr;
 
 use crate::bn::{BigNum, BigNumRef};
+#[cfg(not(ossl300))]
+use crate::{cvt_p, cvt};
 #[cfg(ossl300)]
 use crate::encdec::Structure;
 use crate::error::ErrorStack;
@@ -51,8 +53,6 @@ use crate::pkey_ctx::PkeyCtx;
 use crate::pkey_ctx::Selection;
 #[cfg(not(ossl300))]
 use crate::util::ForeignTypeRefExt;
-#[cfg(not(ossl300))]
-use crate::{cvt, cvt_p};
 use openssl_macros::corresponds;
 
 /// Type of encryption padding to use.
