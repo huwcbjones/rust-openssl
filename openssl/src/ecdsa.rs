@@ -2,6 +2,7 @@
 
 use cfg_if::cfg_if;
 use foreign_types::{ForeignType, ForeignTypeRef};
+#[cfg(not(ossl300))]
 use libc::c_int;
 use std::mem;
 use std::ptr;
@@ -9,9 +10,10 @@ use std::ptr;
 use crate::bn::{BigNum, BigNumRef};
 use crate::ec::EcKeyRef;
 use crate::error::ErrorStack;
-use crate::pkey::{HasPrivate, HasPublic};
+use crate::md_ctx::MdCtx;
+use crate::pkey::{HasPrivate, HasPublic, PKey};
 use crate::util::ForeignTypeRefExt;
-use crate::{cvt_n, cvt_p, LenType};
+use crate::cvt_p;
 use openssl_macros::corresponds;
 
 foreign_type_and_impl_send_sync! {
@@ -26,20 +28,17 @@ foreign_type_and_impl_send_sync! {
 
 impl EcdsaSig {
     /// Computes a digital signature of the hash value `data` using the private EC key eckey.
-    #[corresponds(ECDSA_do_sign)]
     pub fn sign<T>(data: &[u8], eckey: &EcKeyRef<T>) -> Result<EcdsaSig, ErrorStack>
     where
         T: HasPrivate,
     {
-        unsafe {
-            assert!(data.len() <= c_int::MAX as usize);
-            let sig = cvt_p(ffi::ECDSA_do_sign(
-                data.as_ptr(),
-                data.len() as LenType,
-                eckey.as_ptr(),
-            ))?;
-            Ok(EcdsaSig::from_ptr(sig))
-        }
+        let pkey: PKey<T> = eckey.into();
+        let mut ctx = MdCtx::new()?;
+        ctx.digest_sign_init(None, &pkey)?;
+        ctx.digest_sign_update(data)?;
+        let mut sig = Vec::new();
+        ctx.digest_sign_final_to_vec(&mut sig)?;
+        EcdsaSig::from_der(&sig)
     }
 
     /// Returns a new `EcdsaSig` by setting the `r` and `s` values associated with an ECDSA signature.
@@ -71,21 +70,16 @@ impl EcdsaSigRef {
     }
 
     /// Verifies if the signature is a valid ECDSA signature using the given public key.
-    #[corresponds(ECDSA_do_verify)]
     pub fn verify<T>(&self, data: &[u8], eckey: &EcKeyRef<T>) -> Result<bool, ErrorStack>
     where
         T: HasPublic,
     {
-        unsafe {
-            assert!(data.len() <= c_int::MAX as usize);
-            cvt_n(ffi::ECDSA_do_verify(
-                data.as_ptr(),
-                data.len() as LenType,
-                self.as_ptr(),
-                eckey.as_ptr(),
-            ))
-            .map(|x| x == 1)
-        }
+        let pkey: PKey<T> = eckey.into();
+        let mut ctx = MdCtx::new()?;
+        ctx.digest_verify_init(None, &pkey)?;
+        ctx.digest_verify_update(data)?;
+        let sig = self.to_der()?;
+        ctx.digest_verify_final(&sig)
     }
 
     /// Returns internal component: `r` of an `EcdsaSig`. (See X9.62 or FIPS 186-2)
