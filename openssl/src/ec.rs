@@ -21,10 +21,22 @@ use libc::c_int;
 use std::fmt;
 use std::ptr;
 
+#[cfg(ossl300)]
+use crate::bn::BigNumContext;
 use crate::bn::{BigNum, BigNumContextRef, BigNumRef};
+#[cfg(ossl300)]
+use crate::encdec::Structure;
 use crate::error::ErrorStack;
 use crate::nid::Nid;
+#[cfg(ossl300)]
+use crate::params::ParamBuilder;
+#[cfg(ossl300)]
+use crate::pkey::Id;
 use crate::pkey::{HasParams, HasPrivate, HasPublic, PKey, Params, Private, Public};
+#[cfg(ossl300)]
+use crate::pkey_ctx::{pkey_from_params, PkeyCtx, Selection};
+#[cfg(ossl300)]
+use crate::util::c_str;
 use crate::util::ForeignTypeRefExt;
 use crate::{cvt, cvt_n, cvt_p, init};
 use openssl_macros::corresponds;
@@ -169,6 +181,7 @@ impl EcGroupRef {
     /// Places the components of a curve over a prime field in the provided `BigNum`s.
     /// The components make up the formula `y^2 mod p = x^3 + ax + b mod p`.
     #[corresponds(EC_GROUP_get_curve_GFp)]
+    #[cfg(not(osslconf = "OPENSSL_NO_DEPRECATED_3_0"))]
     pub fn components_gfp(
         &self,
         p: &mut BigNumRef,
@@ -195,7 +208,7 @@ impl EcGroupRef {
     /// a term in the polynomial.  It will be set to 3 `1`s or 5 `1`s depending on
     /// using a trinomial or pentanomial.
     #[corresponds(EC_GROUP_get_curve_GF2m)]
-    #[cfg(not(osslconf = "OPENSSL_NO_EC2M"))]
+    #[cfg(not(any(osslconf = "OPENSSL_NO_EC2M", osslconf = "OPENSSL_NO_DEPRECATED_3_0")))]
     pub fn components_gf2m(
         &self,
         p: &mut BigNumRef,
@@ -542,6 +555,7 @@ impl EcPointRef {
     /// Places affine coordinates of a curve over a prime field in the provided
     /// `x` and `y` `BigNum`s
     #[corresponds(EC_POINT_get_affine_coordinates_GFp)]
+    #[cfg(not(osslconf = "OPENSSL_NO_DEPRECATED_3_0"))]
     pub fn affine_coordinates_gfp(
         &self,
         group: &EcGroupRef,
@@ -587,6 +601,7 @@ impl EcPointRef {
     /// Sets affine coordinates of a curve over a prime field using the provided
     /// `x` and `y` `BigNum`s
     #[corresponds(EC_POINT_set_affine_coordinates_GFp)]
+    #[cfg(not(osslconf = "OPENSSL_NO_DEPRECATED_3_0"))]
     pub fn set_affine_coordinates_gfp(
         &mut self,
         group: &EcGroupRef,
@@ -609,7 +624,7 @@ impl EcPointRef {
     /// Places affine coordinates of a curve over a binary field in the provided
     /// `x` and `y` `BigNum`s
     #[corresponds(EC_POINT_get_affine_coordinates_GF2m)]
-    #[cfg(not(osslconf = "OPENSSL_NO_EC2M"))]
+    #[cfg(not(any(osslconf = "OPENSSL_NO_EC2M", osslconf = "OPENSSL_NO_DEPRECATED_3_0")))]
     pub fn affine_coordinates_gf2m(
         &self,
         group: &EcGroupRef,
@@ -713,12 +728,8 @@ generic_foreign_type_and_impl_send_sync! {
     pub struct EcKey<T>;
     /// A reference to an [`EcKey`].
     pub struct EcKeyRef<T>;
-}
 
-impl<T> From<&EcKeyRef<T>> for PKey<T> {
-    fn from(value: &EcKeyRef<T>) -> Self {
-        PKey::from_ec_key(value.to_owned()).unwrap()
-    }
+    pkey_type = ec_key;
 }
 
 impl<T> EcKeyRef<T>
@@ -729,26 +740,31 @@ where
         /// Serializes the private key to a PEM-encoded ECPrivateKey structure.
         ///
         /// The output will have a header of `-----BEGIN EC PRIVATE KEY-----`.
-        #[corresponds(PEM_write_bio_ECPrivateKey)]
         private_key_to_pem,
         /// Serializes the private key to a PEM-encoded encrypted ECPrivateKey structure.
         ///
         /// The output will have a header of `-----BEGIN EC PRIVATE KEY-----`.
-        #[corresponds(PEM_write_bio_ECPrivateKey)]
         private_key_to_pem_passphrase,
-        ffi::PEM_write_bio_ECPrivateKey
+        Id::EC,
+        Selection::Keypair,
+        Structure::TypeSpecific
     }
 
     to_der! {
         /// Serializes the private key into a DER-encoded ECPrivateKey structure.
-        #[corresponds(i2d_ECPrivateKey)]
         private_key_to_der,
-        ffi::i2d_ECPrivateKey
+        Id::EC,
+        Selection::Keypair,
+        Structure::TypeSpecific
     }
 
     /// Returns the private key value.
     #[corresponds(EC_KEY_get0_private_key)]
     pub fn private_key(&self) -> &BigNumRef {
+        #[cfg(ossl300)]
+        return self.0.get_bn_param("priv").unwrap();
+
+        #[cfg(not(ossl300))]
         unsafe {
             let ptr = ffi::EC_KEY_get0_private_key(self.as_ptr());
             BigNumRef::from_const_ptr(ptr)
@@ -763,6 +779,26 @@ where
     /// Returns the public key.
     #[corresponds(EC_KEY_get0_public_key)]
     pub fn public_key(&self) -> &EcPointRef {
+        #[cfg(ossl300)]
+        return {
+            // Public key comes out as an encoded octet string
+            //  (see https://docs.openssl.org/3.0/man7/EVP_PKEY-EC/#common-ec-parameters)
+            let pub_key = self.0.get_byte_string_param("pub").unwrap();
+
+            // So convert it back to an EcPoint
+            let point = {
+                let mut ctx = BigNumContext::new().unwrap();
+                EcPoint::from_bytes(self.group(), &pub_key, &mut ctx).unwrap()
+            };
+
+            let group = self.group();
+
+            // And dupe the pointer since we're returning a reference
+            let ptr = cvt_p(unsafe { ffi::EC_POINT_dup(point.as_ptr(), group.as_ptr()) }).unwrap();
+            unsafe { EcPointRef::from_const_ptr(ptr) }
+        };
+
+        #[cfg(not(ossl300))]
         unsafe {
             let ptr = ffi::EC_KEY_get0_public_key(self.as_ptr());
             EcPointRef::from_const_ptr(ptr)
@@ -773,16 +809,16 @@ where
         /// Serializes the public key into a PEM-encoded SubjectPublicKeyInfo structure.
         ///
         /// The output will have a header of `-----BEGIN PUBLIC KEY-----`.
-        #[corresponds(PEM_write_bio_EC_PUBKEY)]
         public_key_to_pem,
-        ffi::PEM_write_bio_EC_PUBKEY
+        Id::EC,
+        Selection::PublicKey
     }
 
     to_der! {
         /// Serializes the public key into a DER-encoded SubjectPublicKeyInfo structure.
-        #[corresponds(i2d_EC_PUBKEY)]
         public_key_to_der,
-        ffi::i2d_EC_PUBKEY
+        Id::EC,
+        Selection::PublicKey
     }
 }
 
@@ -793,19 +829,34 @@ where
     /// Returns the key's group.
     #[corresponds(EC_KEY_get0_group)]
     pub fn group(&self) -> &EcGroupRef {
+        #[cfg(ossl300)]
+        return {
+            // Name comes out as a UTF8 string (see https://docs.openssl.org/3.0/man7/EVP_PKEY-EC/#common-ec-parameters)
+            let name = self.0.get_utf8_string_param("group").unwrap();
+            let c_name = CString::new(name).unwrap();
+
+            // So convert it back to a Nid
+            let nid = Nid::from_raw(unsafe { ffi::OBJ_sn2nid(c_name.as_ptr()) });
+
+            // To then get the group
+            let group = EcGroup::from_curve_name(nid).unwrap();
+
+            // Except we're returning a reference, so dup it, otherwise it'll be freed when we `group` is dropped
+            let ptr = cvt_p(unsafe { ffi::EC_GROUP_dup(group.as_ptr()) }).unwrap();
+            unsafe { EcGroupRef::from_const_ptr(ptr) }
+        };
+
+        #[cfg(not(ossl300))]
         unsafe {
             let ptr = ffi::EC_KEY_get0_group(self.as_ptr());
             EcGroupRef::from_const_ptr(ptr)
         }
     }
-
-    /// Checks the key for validity.
-    #[corresponds(EC_KEY_check_key)]
-    pub fn check_key(&self) -> Result<(), ErrorStack> {
-        unsafe { cvt(ffi::EC_KEY_check_key(self.as_ptr())).map(|_| ()) }
-    }
 }
 
+key_check!(EcKeyRef, EC_KEY_check_key);
+
+#[cfg(not(ossl300))]
 impl<T> ToOwned for EcKeyRef<T> {
     type Owned = EcKey<T>;
 
@@ -825,6 +876,15 @@ impl EcKey<Params> {
     /// to be provided to the `set_tmp_ecdh` methods on `Ssl` and `SslContextBuilder`.
     #[corresponds(EC_KEY_new_by_curve_name)]
     pub fn from_curve_name(nid: Nid) -> Result<EcKey<Params>, ErrorStack> {
+        #[cfg(ossl300)]
+        return {
+            let mut ctx = PkeyCtx::new_id(Id::EC)?;
+            ctx.paramgen_init()?;
+            ctx.set_ec_paramgen_curve_nid(nid)?;
+            ctx.paramgen()?.ec_key()
+        };
+
+        #[cfg(not(ossl300))]
         unsafe {
             init();
             cvt_p(ffi::EC_KEY_new_by_curve_name(nid.as_raw())).map(|p| EcKey::from_ptr(p))
@@ -834,6 +894,10 @@ impl EcKey<Params> {
     /// Constructs an `EcKey` corresponding to a curve.
     #[corresponds(EC_KEY_set_group)]
     pub fn from_group(group: &EcGroupRef) -> Result<EcKey<Params>, ErrorStack> {
+        #[cfg(ossl300)]
+        return Self::from_curve_name(group.curve_name().unwrap());
+
+        #[cfg(not(ossl300))]
         unsafe {
             cvt_p(ffi::EC_KEY_new())
                 .map(|p| EcKey::from_ptr(p))
@@ -877,6 +941,21 @@ impl EcKey<Public> {
         group: &EcGroupRef,
         public_key: &EcPointRef,
     ) -> Result<EcKey<Public>, ErrorStack> {
+        #[cfg(ossl300)]
+        return {
+            let public_key = {
+                let mut ctx = BigNumContext::new()?;
+                public_key.to_bytes(group, PointConversionForm::UNCOMPRESSED, &mut ctx)?
+            };
+            let params = ParamBuilder::new()
+                .push_utf8_string(c_str(b"group\0"), group.curve_name().unwrap().short_name()?)?
+                .push_utf8_string(c_str(b"point-format\0"), "uncompressed")?
+                .push_byte_string(c_str(b"pub\0"), public_key.as_slice())?
+                .build()?;
+            pkey_from_params(Id::EC, &params)?.ec_key()
+        };
+
+        #[cfg(not(ossl300))]
         unsafe {
             cvt_p(ffi::EC_KEY_new())
                 .map(|p| EcKey::from_ptr(p))
@@ -900,6 +979,20 @@ impl EcKey<Public> {
         x: &BigNumRef,
         y: &BigNumRef,
     ) -> Result<EcKey<Public>, ErrorStack> {
+        #[cfg(ossl300)]
+        return {
+            // Convert the affine coordinates into an EcPoint
+            let public_key = {
+                let mut ctx = BigNumContext::new()?;
+                let mut point = EcPoint::new(group)?;
+                point.set_affine_coordinates(group, x, y, &mut ctx)?;
+                point
+            };
+
+            Self::from_public_key(group, &public_key)
+        };
+
+        #[cfg(not(ossl300))]
         unsafe {
             cvt_p(ffi::EC_KEY_new())
                 .map(|p| EcKey::from_ptr(p))
@@ -921,18 +1014,14 @@ impl EcKey<Public> {
         /// Decodes a PEM-encoded SubjectPublicKeyInfo structure containing a EC key.
         ///
         /// The input should have a header of `-----BEGIN PUBLIC KEY-----`.
-        #[corresponds(PEM_read_bio_EC_PUBKEY)]
         public_key_from_pem,
-        EcKey<Public>,
-        ffi::PEM_read_bio_EC_PUBKEY
+        EcKey<Public>
     }
 
     from_der! {
         /// Decodes a DER-encoded SubjectPublicKeyInfo structure containing a EC key.
-        #[corresponds(d2i_EC_PUBKEY)]
         public_key_from_der,
-        EcKey<Public>,
-        ffi::d2i_EC_PUBKEY
+        EcKey<Public>
     }
 }
 
@@ -967,6 +1056,10 @@ impl EcKey<Private> {
     /// ```
     #[corresponds(EC_KEY_generate_key)]
     pub fn generate(group: &EcGroupRef) -> Result<EcKey<Private>, ErrorStack> {
+        #[cfg(ossl300)]
+        return PKey::ec_gen(group.curve_name().unwrap().short_name()?)?.ec_key();
+
+        #[cfg(not(ossl300))]
         unsafe {
             cvt_p(ffi::EC_KEY_new())
                 .map(|p| EcKey::from_ptr(p))
@@ -977,13 +1070,29 @@ impl EcKey<Private> {
         }
     }
 
-    /// Constructs an public/private key pair given a curve, a private key and a public key point.
+    /// Constructs a public/private key pair given a curve, a private key and a public key point.
     #[corresponds(EC_KEY_set_private_key)]
     pub fn from_private_components(
         group: &EcGroupRef,
         private_number: &BigNumRef,
         public_key: &EcPointRef,
     ) -> Result<EcKey<Private>, ErrorStack> {
+        #[cfg(ossl300)]
+        return {
+            let public_key = {
+                let mut ctx = BigNumContext::new()?;
+                public_key.to_bytes(group, PointConversionForm::UNCOMPRESSED, &mut ctx)?
+            };
+            let params = ParamBuilder::new()
+                .push_utf8_string(c_str(b"group\0"), group.curve_name().unwrap().short_name()?)?
+                .push_utf8_string(c_str(b"point-format\0"), "uncompressed")?
+                .push_byte_string(c_str(b"pub\0"), public_key.as_slice())?
+                .push_bignum(c_str(b"priv\0"), private_number)?
+                .build()?;
+            pkey_from_params(Id::EC, &params)?.ec_key()
+        };
+
+        #[cfg(not(ossl300))]
         unsafe {
             cvt_p(ffi::EC_KEY_new())
                 .map(|p| EcKey::from_ptr(p))
@@ -1028,18 +1137,17 @@ impl EcKey<Private> {
         #[corresponds(PEM_read_bio_ECPrivateKey)]
         private_key_from_pem_callback,
         EcKey<Private>,
-        ffi::PEM_read_bio_ECPrivateKey
+        Structure::TypeSpecific
     }
 
     from_der! {
         /// Decodes a DER-encoded elliptic curve private key structure.
-        #[corresponds(d2i_ECPrivateKey)]
         private_key_from_der,
-        EcKey<Private>,
-        ffi::d2i_ECPrivateKey
+        EcKey<Private>
     }
 }
 
+#[cfg(not(ossl300))]
 impl<T> Clone for EcKey<T> {
     fn clone(&self) -> EcKey<T> {
         (**self).to_owned()

@@ -7,6 +7,10 @@ macro_rules! private_key_from_pem {
     ($(#[$m:meta])* $n:ident, $(#[$m2:meta])* $n2:ident, $(#[$m3:meta])* $n3:ident, Dsa<Private>, $struc: path) => {
         private_key_from_pem!($(#[$m])* $n, $(#[$m2])* $n2, $(#[$m3])* $n3, Dsa<Private>, $struc, ffi::PEM_write_bio_DSAPrivateKey);
     };
+    // EC
+    ($(#[$m:meta])* $n:ident, $(#[$m2:meta])* $n2:ident, $(#[$m3:meta])* $n3:ident, EcKey<Private>, $struc: path) => {
+        private_key_from_pem!($(#[$m])* $n, $(#[$m2])* $n2, $(#[$m3])* $n3, EcKey<Private>, $struc, ffi::PEM_read_bio_ECPrivateKey);
+    };
 
     ($(#[$m:meta])* $n:ident, $(#[$m2:meta])* $n2:ident, $(#[$m3:meta])* $n3:ident, $t:ty, $struc: path, $f:path) => {
         from_pem!($(#[$m])* $n, $t, $struc, $f);
@@ -100,6 +104,10 @@ macro_rules! private_key_to_pem {
     // DSA
     ($(#[$m:meta])* $n:ident, $(#[$m2:meta])* $n2:ident, Id::DSA, $sel:path, $struc:path) => {
         private_key_to_pem!($(#[$m])* $n, $(#[$m2])* $n2, $sel, $struc, ffi::PEM_write_bio_DSAPrivateKey);
+    };
+    // EC
+    ($(#[$m:meta])* $n:ident, $(#[$m2:meta])* $n2:ident, Id::EC, $sel:path, $struc:path) => {
+        private_key_to_pem!($(#[$m])* $n, $(#[$m2])* $n2, $sel, $struc, ffi::PEM_write_bio_ECPrivateKey);
     };
 
     ($(#[$m:meta])* $n:ident, $(#[$m2:meta])* $n2:ident, $sel:path, $struc:path, $f:path) => {
@@ -209,6 +217,13 @@ macro_rules! to_pem {
     ($(#[$m:meta])* $n:ident, Id::DSA, Selection::Keypair, $struc:path) => {
         to_pem!($(#[$m])* $n, Selection::Keypair, $struc, ffi::i2d_DSAPrivateKey);
     };
+    // EC
+    ($(#[$m:meta])* $n:ident, Id::EC, Selection::PublicKey) => {
+        to_pem!($(#[$m])* $n, Selection::PublicKey, Structure::SubjectPublicKeyInfo, ffi::PEM_write_bio_EC_PUBKEY);
+    };
+    ($(#[$m:meta])* $n:ident, Id::EC, Selection::Keypair, $struc:path) => {
+        to_pem!($(#[$m])* $n, Selection::Keypair, $struc, ffi::i2d_ECPrivateKey);
+    };
 
     ($(#[$m:meta])* $n:ident, $sel:path, $struc:path, $f:path) => {
         $(#[$m])*
@@ -256,6 +271,13 @@ macro_rules! to_der {
     };
     ($(#[$m:meta])* $n:ident, Id::DSA, Selection::Keypair, $struc:path) => {
         to_der!($(#[$m])* $n, Selection::Keypair, $struc, ffi::i2d_DSAPrivateKey);
+    };
+    // EC
+    ($(#[$m:meta])* $n:ident, Id::EC, Selection::PublicKey) => {
+        to_der!($(#[$m])* $n, Selection::PublicKey, Structure::SubjectPublicKeyInfo, ffi::i2d_EC_PUBKEY);
+    };
+    ($(#[$m:meta])* $n:ident, Id::EC, Selection::Keypair, $struc:path) => {
+        to_der!($(#[$m])* $n, Selection::Keypair, $struc, ffi::i2d_ECPrivateKey);
     };
 
     ($(#[$m:meta])* $n:ident, $sel:path, $struc:path, $f:path) => {
@@ -308,6 +330,13 @@ macro_rules! from_der {
     ($(#[$m:meta])* $n:ident, Dsa<Public>) => {
         from_der!($(#[$m])* $n, Dsa<Public>, Structure::SubjectPublicKeyInfo, ffi::d2i_DSA_PUBKEY);
     };
+    // EC
+    ($(#[$m:meta])* $n:ident, EcKey<Public>) => {
+        from_der!($(#[$m])* $n, EcKey<Public>, Structure::SubjectPublicKeyInfo, ffi::d2i_EC_PUBKEY);
+    };
+    ($(#[$m:meta])* $n:ident, EcKey<Private>) => {
+        from_der!($(#[$m])* $n, EcKey<Private>, Structure::TypeSpecific, ffi::d2i_ECPrivateKey);
+    };
 
     ($(#[$m:meta])* $n:ident, $t:ty, $struc: path, $f:path) => {
         $(#[$m])*
@@ -353,6 +382,10 @@ macro_rules! from_pem {
     // DSA
     ($(#[$m:meta])* $n:ident, Dsa<Public>) => {
         from_pem!($(#[$m])* $n, Dsa<Public>, Structure::SubjectPublicKeyInfo, ffi::PEM_read_bio_DSA_PUBKEY);
+    };
+    // EC
+    ($(#[$m:meta])* $n:ident, EcKey<Public>) => {
+        from_pem!($(#[$m])* $n, EcKey<Public>, Structure::SubjectPublicKeyInfo, ffi::PEM_read_bio_EC_PUBKEY);
     };
 
     ($(#[$m:meta])* $n:ident, $t:ty, $struc: path, $f:path) => {
