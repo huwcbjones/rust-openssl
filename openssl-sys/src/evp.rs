@@ -38,6 +38,15 @@ pub const EVP_CTRL_GCM_SET_IVLEN: c_int = 0x9;
 pub const EVP_CTRL_GCM_GET_TAG: c_int = 0x10;
 pub const EVP_CTRL_GCM_SET_TAG: c_int = 0x11;
 
+#[cfg(ossl300)]
+pub const EVP_PKEY_KEY_PARAMETERS: c_int = OSSL_KEYMGMT_SELECT_ALL_PARAMETERS;
+#[cfg(ossl300)]
+pub const EVP_PKEY_PRIVATE_KEY: c_int = EVP_PKEY_KEY_PARAMETERS | OSSL_KEYMGMT_SELECT_PRIVATE_KEY;
+#[cfg(ossl300)]
+pub const EVP_PKEY_PUBLIC_KEY: c_int = EVP_PKEY_KEY_PARAMETERS | OSSL_KEYMGMT_SELECT_PUBLIC_KEY;
+#[cfg(ossl300)]
+pub const EVP_PKEY_KEYPAIR: c_int = EVP_PKEY_PUBLIC_KEY | OSSL_KEYMGMT_SELECT_PRIVATE_KEY;
+
 pub unsafe fn EVP_get_digestbynid(type_: c_int) -> *const EVP_MD {
     EVP_get_digestbyname(OBJ_nid2sn(type_))
 }
@@ -326,42 +335,22 @@ pub unsafe fn EVP_PKEY_CTX_set_signature_md(cxt: *mut EVP_PKEY_CTX, md: *mut EVP
     )
 }
 
+#[cfg(not(osslconf = "OPENSSL_NO_DEPRECATED_3_0"))]
 pub unsafe fn EVP_PKEY_assign_RSA(pkey: *mut EVP_PKEY, rsa: *mut RSA) -> c_int {
     EVP_PKEY_assign(pkey, EVP_PKEY_RSA, rsa as *mut c_void)
 }
 
+#[cfg(not(osslconf = "OPENSSL_NO_DEPRECATED_3_0"))]
 pub unsafe fn EVP_PKEY_assign_DSA(pkey: *mut EVP_PKEY, dsa: *mut DSA) -> c_int {
     EVP_PKEY_assign(pkey, EVP_PKEY_DSA, dsa as *mut c_void)
 }
 
+#[cfg(not(osslconf = "OPENSSL_NO_DEPRECATED_3_0"))]
 pub unsafe fn EVP_PKEY_assign_DH(pkey: *mut EVP_PKEY, dh: *mut DH) -> c_int {
     EVP_PKEY_assign(pkey, EVP_PKEY_DH, dh as *mut c_void)
 }
 
+#[cfg(not(osslconf = "OPENSSL_NO_DEPRECATED_3_0"))]
 pub unsafe fn EVP_PKEY_assign_EC_KEY(pkey: *mut EVP_PKEY, ec_key: *mut EC_KEY) -> c_int {
     EVP_PKEY_assign(pkey, EVP_PKEY_EC, ec_key as *mut c_void)
-}
-
-cfg_if! {
-    if #[cfg(ossl300)] {
-        // consts required for EVP_PKEY_fromdata selection value
-
-        // From <openssl/core_dispatch.h>
-        const OSSL_KEYMGMT_SELECT_PRIVATE_KEY: c_int = 0x01;
-        const OSSL_KEYMGMT_SELECT_PUBLIC_KEY: c_int = 0x02;
-        const OSSL_KEYMGMT_SELECT_DOMAIN_PARAMETERS: c_int = 0x04;
-        const OSSL_KEYMGMT_SELECT_OTHER_PARAMETERS: c_int = 0x80;
-        const OSSL_KEYMGMT_SELECT_ALL_PARAMETERS: c_int =
-            OSSL_KEYMGMT_SELECT_DOMAIN_PARAMETERS | OSSL_KEYMGMT_SELECT_OTHER_PARAMETERS;
-        const OSSL_KEYMGMT_SELECT_KEYPAIR: c_int =
-            OSSL_KEYMGMT_SELECT_PRIVATE_KEY | OSSL_KEYMGMT_SELECT_PUBLIC_KEY;
-        const OSSL_KEYMGMT_SELECT_ALL: c_int =
-            OSSL_KEYMGMT_SELECT_KEYPAIR | OSSL_KEYMGMT_SELECT_ALL_PARAMETERS;
-
-        // From <openssl/evp.h>
-        pub const EVP_PKEY_KEY_PARAMETERS: c_int = OSSL_KEYMGMT_SELECT_ALL_PARAMETERS;
-        pub const EVP_PKEY_PRIVATE_KEY: c_int = EVP_PKEY_KEY_PARAMETERS | OSSL_KEYMGMT_SELECT_PRIVATE_KEY;
-        pub const EVP_PKEY_PUBLIC_KEY: c_int = EVP_PKEY_KEY_PARAMETERS | OSSL_KEYMGMT_SELECT_PUBLIC_KEY;
-        pub const EVP_PKEY_KEYPAIR: c_int = EVP_PKEY_PUBLIC_KEY | OSSL_KEYMGMT_SELECT_PRIVATE_KEY;
-    }
 }

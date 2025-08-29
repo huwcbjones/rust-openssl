@@ -472,6 +472,7 @@ cfg_if! {
         }
     }
 }
+#[cfg(not(osslconf = "OPENSSL_NO_DEPRECATED_3_0"))]
 const_ptr_api! {
     extern "C" {
         pub fn EVP_PKEY_get1_RSA(k: #[const_ptr_if(libressl420)] EVP_PKEY) -> *mut RSA;
@@ -480,6 +481,7 @@ const_ptr_api! {
         pub fn EVP_PKEY_get1_EC_KEY(k: #[const_ptr_if(libressl420)] EVP_PKEY) -> *mut EC_KEY;
     }
 }
+#[cfg(not(osslconf = "OPENSSL_NO_DEPRECATED_3_0"))]
 extern "C" {
     pub fn EVP_PKEY_assign(pkey: *mut EVP_PKEY, typ: c_int, key: *mut c_void) -> c_int;
 
@@ -488,18 +490,30 @@ extern "C" {
     pub fn EVP_PKEY_set1_DH(k: *mut EVP_PKEY, k: *mut DH) -> c_int;
     pub fn EVP_PKEY_set1_EC_KEY(k: *mut EVP_PKEY, k: *mut EC_KEY) -> c_int;
 
+    pub fn EVP_PKEY_cmp(a: *const EVP_PKEY, b: *const EVP_PKEY) -> c_int;
+}
+
+extern "C" {
     pub fn EVP_PKEY_new() -> *mut EVP_PKEY;
     pub fn EVP_PKEY_free(k: *mut EVP_PKEY);
     #[cfg(any(ossl110, libressl270))]
     pub fn EVP_PKEY_up_ref(pkey: *mut EVP_PKEY) -> c_int;
+
+    #[cfg(ossl300)]
+    pub fn EVP_PKEY_todata(
+        ppkey: *const EVP_PKEY,
+        selection: c_int,
+        param: *mut *mut OSSL_PARAM,
+    ) -> c_int;
+
+    #[cfg(ossl300)]
+    pub fn EVP_PKEY_generate(ctx: *mut EVP_PKEY_CTX, k: *mut *mut EVP_PKEY) -> c_int;
 
     pub fn d2i_AutoPrivateKey(
         a: *mut *mut EVP_PKEY,
         pp: *mut *const c_uchar,
         length: c_long,
     ) -> *mut EVP_PKEY;
-
-    pub fn EVP_PKEY_cmp(a: *const EVP_PKEY, b: *const EVP_PKEY) -> c_int;
 
     pub fn EVP_PKEY_copy_parameters(to: *mut EVP_PKEY, from: *const EVP_PKEY) -> c_int;
 
@@ -539,6 +553,12 @@ extern "C" {
 
     pub fn EVP_PKEY_CTX_new(k: *mut EVP_PKEY, e: *mut ENGINE) -> *mut EVP_PKEY_CTX;
     pub fn EVP_PKEY_CTX_new_id(id: c_int, e: *mut ENGINE) -> *mut EVP_PKEY_CTX;
+    #[cfg(ossl300)]
+    pub fn EVP_PKEY_CTX_new_from_name(
+        libctx: *mut OSSL_LIB_CTX,
+        name: *const c_char,
+        propquery: *const c_char,
+    ) -> *mut EVP_PKEY_CTX;
     pub fn EVP_PKEY_CTX_free(ctx: *mut EVP_PKEY_CTX);
 
     pub fn EVP_PKEY_CTX_ctrl(
@@ -606,6 +626,14 @@ extern "C" {
     pub fn EVP_PKEY_check(ctx: *mut EVP_PKEY_CTX) -> c_int;
 
     pub fn EVP_PKEY_sign_init(ctx: *mut EVP_PKEY_CTX) -> c_int;
+
+    #[cfg(ossl340)]
+    pub fn EVP_PKEY_sign_message_init(
+        ctx: *mut EVP_PKEY_CTX,
+        algo: *mut EVP_SIGNATURE,
+        params: *const OSSL_PARAM,
+    ) -> c_int;
+
     pub fn EVP_PKEY_sign(
         ctx: *mut EVP_PKEY_CTX,
         sig: *mut c_uchar,
@@ -614,6 +642,14 @@ extern "C" {
         tbslen: size_t,
     ) -> c_int;
     pub fn EVP_PKEY_verify_init(ctx: *mut EVP_PKEY_CTX) -> c_int;
+
+    #[cfg(ossl340)]
+    pub fn EVP_PKEY_verify_message_init(
+        ctx: *mut EVP_PKEY_CTX,
+        algo: *mut EVP_SIGNATURE,
+        params: *const OSSL_PARAM,
+    ) -> c_int;
+
     pub fn EVP_PKEY_verify(
         ctx: *mut EVP_PKEY_CTX,
         sig: *const c_uchar,
@@ -644,6 +680,28 @@ extern "C" {
         routlen: *mut size_t,
         sig: *const c_uchar,
         siglen: size_t,
+    ) -> c_int;
+
+    #[cfg(ossl300)]
+    pub fn EVP_PKEY_encapsulate_init(ctx: *mut EVP_PKEY_CTX, params: *const OSSL_PARAM) -> c_int;
+    #[cfg(ossl300)]
+    pub fn EVP_PKEY_encapsulate(
+        ctx: *mut EVP_PKEY_CTX,
+        wrappedkey: *mut c_uchar,
+        wrappedkeylen: *mut size_t,
+        genkey: *mut c_uchar,
+        genkeylen: *mut size_t,
+    ) -> c_int;
+
+    #[cfg(ossl300)]
+    pub fn EVP_PKEY_decapsulate_init(ctx: *mut EVP_PKEY_CTX, params: *const OSSL_PARAM) -> c_int;
+    #[cfg(ossl300)]
+    pub fn EVP_PKEY_decapsulate(
+        ctx: *mut EVP_PKEY_CTX,
+        genkey: *mut c_uchar,
+        genkeylen: *mut size_t,
+        wrappedkey: *const c_uchar,
+        wrappedkeylen: size_t,
     ) -> c_int;
 }
 
@@ -750,6 +808,14 @@ cfg_if! {
                 buf: *const c_uchar,
                 bsize: size_t,
             ) -> c_int;
+            pub fn EVP_SIGNATURE_free(s: *mut EVP_SIGNATURE);
+            pub fn EVP_SIGNATURE_up_ref(s: *mut EVP_SIGNATURE) -> c_int;
+            pub fn EVP_SIGNATURE_fetch(ctx: *mut OSSL_LIB_CTX,
+                                       algorithm: *const c_char,
+                                       properties: *const c_char)
+                                       -> *mut EVP_SIGNATURE;
+            pub fn EVP_SIGNATURE_get0_name(s: *const EVP_SIGNATURE) -> *const c_char;
+            pub fn EVP_SIGNATURE_get0_description(s: *const EVP_SIGNATURE) -> *const c_char;
         }
     }
 }

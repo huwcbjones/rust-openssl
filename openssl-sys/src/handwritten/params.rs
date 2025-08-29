@@ -22,6 +22,25 @@ extern "C" {
         bsize: size_t,
     ) -> OSSL_PARAM;
 
+    pub fn OSSL_PARAM_get_BN(p: *const OSSL_PARAM, val: *mut *mut BIGNUM) -> c_int;
+    pub fn OSSL_PARAM_get_utf8_string(
+        p: *const OSSL_PARAM,
+        val: *mut *mut c_char,
+        max_len: usize,
+    ) -> c_int;
+    pub fn OSSL_PARAM_get_utf8_string_ptr(p: *const OSSL_PARAM, val: *mut *const c_char) -> c_int;
+    pub fn OSSL_PARAM_get_octet_string(
+        p: *const OSSL_PARAM,
+        val: *mut *mut c_void,
+        max_len: usize,
+        used_len: *mut usize,
+    ) -> c_int;
+    pub fn OSSL_PARAM_get_octet_string_ptr(
+        p: *const OSSL_PARAM,
+        val: *mut *const c_void,
+        used_len: *mut usize,
+    ) -> c_int;
+
     pub fn OSSL_PARAM_BLD_new() -> *mut OSSL_PARAM_BLD;
     pub fn OSSL_PARAM_BLD_free(bld: *mut OSSL_PARAM_BLD);
     pub fn OSSL_PARAM_BLD_to_param(bld: *mut OSSL_PARAM_BLD) -> *mut OSSL_PARAM;
