@@ -181,6 +181,7 @@ impl EcGroupRef {
     /// Places the components of a curve over a prime field in the provided `BigNum`s.
     /// The components make up the formula `y^2 mod p = x^3 + ax + b mod p`.
     #[corresponds(EC_GROUP_get_curve_GFp)]
+    #[cfg(not(osslconf = "OPENSSL_NO_DEPRECATED_3_0"))]
     pub fn components_gfp(
         &self,
         p: &mut BigNumRef,
@@ -207,7 +208,7 @@ impl EcGroupRef {
     /// a term in the polynomial.  It will be set to 3 `1`s or 5 `1`s depending on
     /// using a trinomial or pentanomial.
     #[corresponds(EC_GROUP_get_curve_GF2m)]
-    #[cfg(not(osslconf = "OPENSSL_NO_EC2M"))]
+    #[cfg(not(any(osslconf = "OPENSSL_NO_EC2M", osslconf = "OPENSSL_NO_DEPRECATED_3_0")))]
     pub fn components_gf2m(
         &self,
         p: &mut BigNumRef,
@@ -554,6 +555,7 @@ impl EcPointRef {
     /// Places affine coordinates of a curve over a prime field in the provided
     /// `x` and `y` `BigNum`s
     #[corresponds(EC_POINT_get_affine_coordinates_GFp)]
+    #[cfg(not(osslconf = "OPENSSL_NO_DEPRECATED_3_0"))]
     pub fn affine_coordinates_gfp(
         &self,
         group: &EcGroupRef,
@@ -576,6 +578,7 @@ impl EcPointRef {
     /// Sets affine coordinates of a curve over a prime field using the provided
     /// `x` and `y` `BigNum`s
     #[corresponds(EC_POINT_set_affine_coordinates_GFp)]
+    #[cfg(not(osslconf = "OPENSSL_NO_DEPRECATED_3_0"))]
     pub fn set_affine_coordinates_gfp(
         &mut self,
         group: &EcGroupRef,
@@ -598,7 +601,7 @@ impl EcPointRef {
     /// Places affine coordinates of a curve over a binary field in the provided
     /// `x` and `y` `BigNum`s
     #[corresponds(EC_POINT_get_affine_coordinates_GF2m)]
-    #[cfg(not(osslconf = "OPENSSL_NO_EC2M"))]
+    #[cfg(not(any(osslconf = "OPENSSL_NO_EC2M", osslconf = "OPENSSL_NO_DEPRECATED_3_0")))]
     pub fn affine_coordinates_gf2m(
         &self,
         group: &EcGroupRef,
@@ -965,7 +968,13 @@ impl EcKey<Public> {
             let public_key = {
                 let mut ctx = BigNumContext::new()?;
                 let mut point = EcPoint::new(group)?;
-                point.set_affine_coordinates_gfp(group, x, y, &mut ctx)?;
+                cfg_if!{
+                    if #[cfg(any(ossl111, boringssl, libressl350, awslc))] {
+                        point.set_affine_coordinates(group, x, y, &mut ctx)?;
+                    } else {
+                        point.set_affine_coordinates_gfp(group, x, y, &mut ctx)?;
+                    }
+                }
                 point
             };
 
