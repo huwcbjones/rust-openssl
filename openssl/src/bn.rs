@@ -33,7 +33,9 @@ use std::{fmt, ptr};
 use crate::asn1::Asn1Integer;
 use crate::error::ErrorStack;
 use crate::string::OpensslString;
-use crate::{cvt, cvt_n, cvt_p, LenType};
+#[cfg(not(osslconf = "OPENSSL_NO_DEPRECATED_3_0"))]
+use crate::cvt_n;
+use crate::{cvt, cvt_p, LenType};
 use openssl_macros::corresponds;
 
 cfg_if! {
