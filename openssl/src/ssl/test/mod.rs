@@ -969,7 +969,12 @@ fn cert_store() {
 }
 
 #[test]
-#[cfg_attr(any(all(libressl321, not(libressl340)), boringssl, awslc), ignore)]
+#[cfg_attr(any(
+    all(libressl321, not(libressl340)),
+    boringssl,
+    awslc,
+    osslconf = "OPENSSL_NO_DEPRECATED_3_0",
+), ignore)]
 fn tmp_dh_callback() {
     static CALLED_BACK: AtomicBool = AtomicBool::new(false);
 
@@ -1017,7 +1022,12 @@ fn tmp_ecdh_callback() {
 }
 
 #[test]
-#[cfg_attr(any(all(libressl321, not(libressl340)), boringssl, awslc), ignore)]
+#[cfg_attr(any(
+    all(libressl321, not(libressl340)),
+    boringssl,
+    awslc,
+    osslconf = "OPENSSL_NO_DEPRECATED_3_0",
+), ignore)]
 fn tmp_dh_callback_ssl() {
     static CALLED_BACK: AtomicBool = AtomicBool::new(false);
 

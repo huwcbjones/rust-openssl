@@ -495,16 +495,17 @@ impl<T> PkeyCtxRef<T> {
     #[inline]
     #[cfg(ossl300)]
     #[allow(dead_code)]
-    pub(crate) fn fromdata<K: SelectionT>(
+    pub(crate) fn fromdata<K>(
         &mut self,
         params: &ParamsRef<'_>,
+        selection: Selection,
     ) -> Result<PKey<K>, ErrorStack> {
         let mut key_ptr = ptr::null_mut();
         cvt(unsafe {
             ffi::EVP_PKEY_fromdata(
                 self.as_ptr(),
                 &mut key_ptr,
-                K::SELECTION.into(),
+                selection.into(),
                 params.as_ptr(),
             )
         })?;
@@ -1002,7 +1003,7 @@ pub(crate) fn pkey_from_params<K: SelectionT>(
 ) -> Result<PKey<K>, ErrorStack> {
     let mut ctx = PkeyCtx::new_id(id)?;
     ctx.fromdata_init()?;
-    ctx.fromdata(params)
+    ctx.fromdata(params, K::SELECTION)
 }
 
 #[cfg(test)]

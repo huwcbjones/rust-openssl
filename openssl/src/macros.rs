@@ -210,6 +210,16 @@ macro_rules! to_pem {
     ($(#[$m:meta])* $n:ident, Id::RSA, Selection::Keypair, $struc:path) => {
         to_pem!($(#[$m])* $n, Selection::Keypair, $struc, ffi::i2d_RSAPrivateKey);
     };
+    // DH
+    ($(#[$m:meta])* $n:ident, Id::DH, Selection::KeyParameters) => {
+        to_pem!($(#[$m])* $n, Selection::PublicKey, Structure::TypeSpecific, ffi::PEM_write_bio_DHparams);
+    };
+    ($(#[$m:meta])* $n:ident, Id::DH, Selection::PublicKey) => {
+        to_pem!($(#[$m])* $n, Selection::PublicKey, Structure::SubjectPublicKeyInfo, ffi::);
+    };
+    ($(#[$m:meta])* $n:ident, Id::DH, Selection::Keypair, $struc:path) => {
+        to_pem!($(#[$m])* $n, Selection::Keypair, $struc, ffi::);
+    };
     // DSA
     ($(#[$m:meta])* $n:ident, Id::DSA, Selection::PublicKey) => {
         to_pem!($(#[$m])* $n, Selection::PublicKey, Structure::SubjectPublicKeyInfo, ffi::PEM_write_bio_DSA_PUBKEY);
@@ -264,6 +274,13 @@ macro_rules! to_der {
     };
     ($(#[$m:meta])* $n:ident, Id::RSA, Selection::Keypair, $struc:path) => {
         to_der!($(#[$m])* $n, Selection::Keypair, $struc, ffi::i2d_RSAPrivateKey);
+    };
+    // DH
+    ($(#[$m:meta])* $n:ident, Id::DH, Selection::KeyParameters) => {
+        to_der!($(#[$m])* $n, Selection::KeyParameters, Structure::TypeSpecific, ffi::i2d_DHparams);
+    };
+    ($(#[$m:meta])* $n:ident, Id::DH, Selection::Keypair, $struc:path) => {
+        to_der!($(#[$m])* $n, Selection::Keypair, $struc, ffi::i2d_DSAPrivateKey);
     };
     // DSA
     ($(#[$m:meta])* $n:ident, Id::DSA, Selection::PublicKey) => {
@@ -326,6 +343,10 @@ macro_rules! from_der {
     ($(#[$m:meta])* $n:ident, Rsa<Private>, $struc:path) => {
         from_der!($(#[$m])* $n, Rsa<Private>, $struc, ffi::d2i_RSAPrivateKey);
     };
+    // DH
+    ($(#[$m:meta])* $n:ident, Dh<Params>) => {
+        from_der!($(#[$m])* $n, Dh<Params>, Structure::TypeSpecific, ffi::d2i_DHparams);
+    };
     // DSA
     ($(#[$m:meta])* $n:ident, Dsa<Public>) => {
         from_der!($(#[$m])* $n, Dsa<Public>, Structure::SubjectPublicKeyInfo, ffi::d2i_DSA_PUBKEY);
@@ -378,6 +399,10 @@ macro_rules! from_pem {
     };
     ($(#[$m:meta])* $n:ident, Rsa<Public>, Structure::PKCS1) => {
         from_pem!($(#[$m])* $n, Rsa<Public>, Structure::PKCS1, ffi::PEM_read_bio_RSAPublicKey);
+    };
+    // DH
+    ($(#[$m:meta])* $n:ident, Dh<Params>) => {
+        from_pem!($(#[$m])* $n, Dh<Params>, Structure::TypeSpecific, ffi::PEM_read_bio_DHparams);
     };
     // DSA
     ($(#[$m:meta])* $n:ident, Dsa<Public>) => {
@@ -448,6 +473,117 @@ macro_rules! foreign_type_and_impl_send_sync {
             unsafe impl Sync for $owned{}
             unsafe impl Sync for $borrowed{}
         };
+
+    // (
+    //     $(#[$impl_attr:meta])*
+    //     type CType = $ctype:ty;
+    //     fn drop = $drop:expr;
+    //     $(fn clone = $clone:expr;)*
+    //
+    //     $(#[$owned_attr:meta])*
+    //     pub struct $owned:ident;
+    //     $(#[$borrowed_attr:meta])*
+    //     pub struct $borrowed:ident;
+    //
+    //     $(type attr = $attrs:ty;)*
+    // ) => {
+    //     $(#[$owned_attr])*
+    //     pub struct $owned(*mut $ctype, $($attrs),*);
+    //
+    //
+    //     $(#[$impl_attr])*
+    //     impl ::foreign_types::ForeignType for $owned {
+    //         type CType = $ctype;
+    //         type Ref = $borrowed;
+    //
+    //         #[inline]
+    //         unsafe fn from_ptr(ptr: *mut $ctype) -> $owned {
+    //             $owned(
+    //                 ptr,
+    //                 $($attrs::default(),)*
+    //             )
+    //         }
+    //
+    //         #[inline]
+    //         fn as_ptr(&self) -> *mut $ctype {
+    //             self.0
+    //         }
+    //     }
+    //
+    //     impl Drop for $owned {
+    //         #[inline]
+    //         fn drop(&mut self) {
+    //             unsafe { $drop(self.0) }
+    //         }
+    //     }
+    //
+    //     $(
+    //         impl Clone for $owned {
+    //             #[inline]
+    //             fn clone(&self) -> $owned {
+    //                 unsafe {
+    //                     let handle: *mut $ctype = $clone(self.0);
+    //                     ::foreign_types::ForeignType::from_ptr(handle)
+    //                 }
+    //             }
+    //         }
+    //
+    //         impl ::std::borrow::ToOwned for $borrowed {
+    //             type Owned = $owned;
+    //             #[inline]
+    //             fn to_owned(&self) -> $owned {
+    //                 unsafe {
+    //                     let handle: *mut $ctype =
+    //                         $clone(::foreign_types::ForeignTypeRef::as_ptr(self));
+    //                     $crate::ForeignType::from_ptr(handle)
+    //                 }
+    //             }
+    //         }
+    //     )*
+    //
+    //     impl ::std::ops::Deref for $owned {
+    //         type Target = $borrowed;
+    //
+    //         #[inline]
+    //         fn deref(&self) -> &$borrowed {
+    //             unsafe { ::foreign_types::ForeignTypeRef::from_ptr(self.0) }
+    //         }
+    //     }
+    //
+    //     impl ::std::ops::DerefMut for $owned {
+    //         #[inline]
+    //         fn deref_mut(&mut self) -> &mut $borrowed {
+    //             unsafe { ::foreign_types::ForeignTypeRef::from_ptr_mut(self.0) }
+    //         }
+    //     }
+    //
+    //     impl ::std::borrow::Borrow<$borrowed> for $owned {
+    //         #[inline]
+    //         fn borrow(&self) -> &$borrowed {
+    //             &**self
+    //         }
+    //     }
+    //
+    //     impl ::std::convert::AsRef<$borrowed> for $owned {
+    //         #[inline]
+    //         fn as_ref(&self) -> &$borrowed {
+    //             &**self
+    //         }
+    //     }
+    //
+    //     $(#[$borrowed_attr])*
+    //     pub struct $borrowed(::foreign_types::Opaque, $($attrs::default()),*);
+    //
+    //     $(#[$impl_attr])*
+    //     impl ::foreign_types::ForeignTypeRef for $borrowed {
+    //         type CType = $ctype;
+    //     }
+    //
+    //     unsafe impl Send for $owned{}
+    //     unsafe impl Send for $borrowed{}
+    //     unsafe impl Sync for $owned{}
+    //     unsafe impl Sync for $borrowed{}
+    // };
 }
 
 macro_rules! generic_foreign_type_and_impl_send_sync {

@@ -51,10 +51,12 @@ use crate::ec::EcKey;
 use crate::error::ErrorStack;
 #[cfg(any(ossl110, boringssl, libressl370, awslc))]
 use crate::pkey_ctx::PkeyCtx;
+#[cfg(ossl300)]
+use crate::pkey_ctx::Selection;
 use crate::rsa::Rsa;
 use crate::symm::Cipher;
 use crate::util::{c_str, invoke_passwd_cb, CallbackState};
-use crate::{cvt, cvt_p};
+use crate::{cvt, cvt_p, params};
 use cfg_if::cfg_if;
 use foreign_types::{ForeignType, ForeignTypeRef};
 #[cfg(ossl300)]
@@ -66,7 +68,7 @@ use std::convert::{TryFrom, TryInto};
 use std::ffi::c_uchar;
 use std::ffi::{CStr, CString};
 use std::fmt;
-#[cfg(all(not(any(boringssl, awslc)), ossl110))]
+#[cfg(not(ossl300))]
 use std::mem;
 use std::ptr;
 
@@ -275,10 +277,16 @@ impl<T> PKeyRef<T> {
     /// Returns a copy of the internal DH key.
     #[corresponds(EVP_PKEY_get1_DH)]
     pub fn dh(&self) -> Result<Dh<T>, ErrorStack> {
-        unsafe {
-            let dh = cvt_p(ffi::EVP_PKEY_get1_DH(self.as_ptr()))?;
-            Ok(Dh::from_ptr(dh))
+        if self.id() != Id::DH {
+            return Err(ErrorStack::get());
         }
+
+        let dh = self.as_ptr();
+        #[cfg(ossl300)]
+        cvt(unsafe { ffi::EVP_PKEY_up_ref(dh) })?;
+        #[cfg(not(ossl300))]
+        let dh = cvt_p(unsafe { ffi::EVP_PKEY_get1_DH(self.as_ptr()) })?;
+        Ok(unsafe { Dh::from_ptr(dh) })
     }
 
     /// Returns a copy of the internal elliptic curve key.
@@ -370,6 +378,14 @@ impl<T> PKeyRef<T> {
         }
         value_buf.truncate(out_len);
         Ok(String::from_utf8(value_buf).unwrap())
+    }
+
+    /// Converts the pkey to an OSSL_PARAMS structure.
+    #[corresponds(EVP_PKEY_todata)]
+    pub(crate) fn to_data(&self, selection: Selection) -> Result<params::Params<'_>, ErrorStack> {
+        let mut params = ptr::null_mut();
+        cvt(unsafe { ffi::EVP_PKEY_todata(self.as_ptr(), selection.into(), &mut params) })?;
+        Ok(unsafe { params::Params::from_ptr(params) })
     }
 }
 
@@ -634,28 +650,50 @@ impl<T> PKey<T> {
     #[corresponds(EVP_PKEY_set1_DH)]
     #[cfg(not(boringssl))]
     pub fn from_dh(dh: Dh<T>) -> Result<PKey<T>, ErrorStack> {
+        let pkey: PKey<T>;
+
+        #[cfg(ossl300)]
+        unsafe {
+            ffi::EVP_PKEY_up_ref(dh.as_ptr());
+            pkey = PKey::from_ptr(dh.as_ptr());
+        }
+
+        #[cfg(not(ossl300))]
         unsafe {
             let evp = cvt_p(ffi::EVP_PKEY_new())?;
-            let pkey = PKey::from_ptr(evp);
+            pkey = PKey::from_ptr(evp);
             cvt(ffi::EVP_PKEY_set1_DH(pkey.0, dh.as_ptr()))?;
-            Ok(pkey)
         }
+        Ok(pkey)
     }
 
     /// Creates a new `PKey` containing a Diffie-Hellman key with type DHX.
     #[cfg(all(not(any(boringssl, awslc)), ossl110))]
     pub fn from_dhx(dh: Dh<T>) -> Result<PKey<T>, ErrorStack> {
+        let pkey: PKey<T>;
+
+        #[cfg(ossl300)]
+        {
+            let tmp_pkey = Self::from_dh(dh)?;
+            let params = tmp_pkey.to_data(Selection::Keypair)?;
+            let mut ctx = PkeyCtx::new_id(Id::DHX)?;
+            ctx.fromdata_init()?;
+            pkey = ctx.fromdata(&params, Selection::Keypair)?;
+        }
+
+        #[cfg(not(ossl300))]
         unsafe {
             let evp = cvt_p(ffi::EVP_PKEY_new())?;
-            let pkey = PKey::from_ptr(evp);
+            pkey = PKey::from_ptr(evp);
             cvt(ffi::EVP_PKEY_assign(
                 pkey.0,
                 ffi::EVP_PKEY_DHX,
                 dh.as_ptr().cast(),
             ))?;
             mem::forget(dh);
-            Ok(pkey)
         }
+
+        Ok(pkey)
     }
 
     /// Creates a new `PKey` containing an elliptic curve key.
