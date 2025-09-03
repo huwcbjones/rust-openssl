@@ -160,7 +160,6 @@ impl AesKey {
 /// Panics if `in_` is not the same length as `out`, if that length is not a multiple of 16, or if
 /// `iv` is not at least 32 bytes.
 #[cfg(not(any(boringssl, awslc)))]
-#[cfg(not(osslconf = "OPENSSL_NO_DEPRECATED_3_0"))]
 #[corresponds(AES_ige_encrypt)]
 pub fn aes_ige(in_: &[u8], out: &mut [u8], key: &AesKey, iv: &mut [u8], mode: Mode) {
     unsafe {
